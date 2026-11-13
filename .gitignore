@@ -1,0 +1,45 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+
+# Generated artifacts (they belong in DRONEZ_DATA_DIR; ignore any stray local copies)
+data/
+runs/
+checkpoints/
+generated/
+*.tfevents.*
+events.out.*
+*.mp4
+*.gif
+!docs/media/*.gif
+*.step
+*.stp
+*.stl
+*.obj
+*.onnx
+!releases/**/*.onnx
+wandb/
+
+# Claude Code: personal settings and audit logs
+.claude/settings.local.json
+.claude/logs/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
