@@ -13,7 +13,8 @@ concurrency:
 env:
   UV_PYTHON: "3.12"
   PYTHONUTF8: "1"
-  MUJOCO_GL: egl
+  # Do NOT set MUJOCO_GL globally: with MuJoCo 4, `import mujoco` then loads that GL backend
+  # (fails on runners without libEGL, and "egl" is invalid on Windows). Render jobs set it per OS.
 
 jobs:
   lint:
