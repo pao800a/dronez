@@ -3,8 +3,15 @@
 May import ``utils``, ``cad.schema`` / ``cad.artifacts`` and ``sim`` (never ``envs`` or above).
 """
 
-from dronez.control.base import Controller, NominalVehicle, Setpoint, thrusts_to_command
+from dronez.control.base import (
+    Controller,
+    NominalVehicle,
+    Setpoint,
+    thrusts_to_action,
+    thrusts_to_command,
+)
 from dronez.control.baseline import BaselineController
+from dronez.control.command_map import CommandMap
 from dronez.control.geometric import GeometricConfig, GeometricSO3, load_geometric_config
 from dronez.control.mixer import Mixer, MixInfo
 from dronez.control.pid import CascadedPID, PidConfig, RateController, load_pid_config
@@ -13,6 +20,7 @@ from dronez.control.position import PositionGains, PositionLoop, desired_rotatio
 __all__ = [
     "BaselineController",
     "CascadedPID",
+    "CommandMap",
     "Controller",
     "GeometricConfig",
     "GeometricSO3",
@@ -27,5 +35,6 @@ __all__ = [
     "desired_rotation",
     "load_geometric_config",
     "load_pid_config",
+    "thrusts_to_action",
     "thrusts_to_command",
 ]

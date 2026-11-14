@@ -3,7 +3,7 @@
 ``act`` pipeline (policy rate, zero-order hold in the plant):
 
     Sensed -> position loop (optional) -> (R_d, T) -> subclass torque law -> Mixer.allocate
-           -> ``thrusts_to_command`` -> action in [0, 1]^4
+           -> ``thrusts_to_action`` -> action in [-1, 1]^4 (``CommandMap``, ADR-0006 §3)
 
 The observation vector is ignored: baselines read ``Sensed`` and their own state only.
 """
@@ -15,7 +15,8 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from dronez.control.base import NominalVehicle, Setpoint, thrusts_to_command
+from dronez.control.base import NominalVehicle, Setpoint, thrusts_to_action
+from dronez.control.command_map import CommandMap
 from dronez.control.mixer import Mixer, MixInfo
 from dronez.control.position import PositionGains, PositionLoop, desired_rotation
 from dronez.sim.motor_model import MotorModel
@@ -33,10 +34,17 @@ class BaselineController:
 
     action_mode: Literal["motors", "ctbr"] = "motors"
 
-    def __init__(self, vehicle: NominalVehicle, position: PositionGains, dt: float) -> None:
+    def __init__(
+        self,
+        vehicle: NominalVehicle,
+        position: PositionGains,
+        dt: float,
+        cmap: CommandMap | None = None,
+    ) -> None:
         self.vehicle = vehicle
         self.dt = dt
-        self.mixer = Mixer.from_vehicle(vehicle)
+        self.cmap = cmap if cmap is not None else CommandMap.from_vehicle(vehicle)
+        self.mixer = Mixer.from_vehicle(vehicle, self.cmap)
         self.motor = MotorModel(vehicle.motor.copy())
         self.position = PositionLoop(position, dt)
         self.setpoint = Setpoint()
@@ -62,7 +70,7 @@ class BaselineController:
         self.last_q_d = rotations.rotmat_to_quat(r_d)
         tau = self._torque(q, np.asarray(sensed.gyro_b, dtype=np.float64), r_d)
         thrusts, self.last_mix = self.mixer.allocate_info(t_total, tau)
-        return thrusts_to_command(thrusts, self.motor)
+        return thrusts_to_action(thrusts, self.motor, self.cmap)
 
     # -- outer loop ------------------------------------------------------------------------------
     def _desired(self, q: F64, sensed: Sensed) -> tuple[F64, float]:

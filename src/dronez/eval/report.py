@@ -25,22 +25,42 @@ from dronez.eval.scenarios import EvalSuite
 from dronez.eval.suite import SCHEMA_VERSION, ScenarioResult, aggregate, g3_gate, git_sha
 
 
-def run_dir_for(controller: str, suite_hash: str, model_hash: str) -> Path:
+def run_dir_for(controller: str, suite_hash: str, model_hash: str, env_hash: str = "") -> Path:
+    """Baseline cache dir; the env-config hash is part of the key (ADR-0006 §9)."""
     from dronez.utils import paths  # noqa: PLC0415
 
-    return paths.eval_dir(f"baseline-{controller}", f"{suite_hash}-{model_hash}")
+    key = f"{suite_hash}-{model_hash}" + (f"-{env_hash}" if env_hash else "")
+    return paths.eval_dir(f"baseline-{controller}", key)
+
+
+def policy_dir_for(run_id: str, ckpt: str) -> Path:
+    """``$DRONEZ_DATA_DIR/eval/<run_id>/<checkpoint>/`` (architecture §8)."""
+    from dronez.utils import paths  # noqa: PLC0415
+
+    return paths.eval_dir(run_id, ckpt)
 
 
 def _json_safe(v: Any) -> Any:
     return None if (isinstance(v, float) and not np.isfinite(v)) else v
 
 
-def build_metrics(
+def _default_gates(results: dict[str, ScenarioResult]) -> dict[str, Any]:
+    """G3 (the legacy baseline gate) when its scenarios are present."""
+    legacy_hover = any(n == "hover_hold" and not r.scenario.random_yaw for n, r in results.items())
+    if "recovery_30deg" in results or legacy_hover:
+        return {"G3": g3_gate(results)}
+    return {}
+
+
+def build_metrics(  # noqa: PLR0917
     controller: str,
     suite: EvalSuite,
     model_hash: str,
     results: dict[str, ScenarioResult],
     extra: dict[str, Any],
+    gates: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    checkpoint: str | None = None,
 ) -> dict[str, Any]:
     suite_hash = suite.hash()
     scenarios: dict[str, Any] = {}
@@ -54,14 +74,14 @@ def build_metrics(
     return {
         "schema_version": SCHEMA_VERSION,
         "controller": controller,
-        "run_id": f"baseline-{controller}",
-        "checkpoint": f"{suite_hash}-{model_hash}",
+        "run_id": run_id or f"baseline-{controller}",
+        "checkpoint": checkpoint or f"{suite_hash}-{model_hash}",
         "suite_hash": suite_hash,
         "model_hash": model_hash,
         "git_sha": git_sha(),
         "units": "SI (rad, s, m); degrees only in report.md",
         "scenarios": scenarios,
-        "gates": {"G3": g3_gate(results)},
+        "gates": gates if gates is not None else _default_gates(results),
         **extra,
     }
 
@@ -100,25 +120,28 @@ def _fmt(x: Any, scale: float = 1.0, nd: int = 2) -> str:
 def _report_md(m: dict[str, Any], videos: list[str]) -> str:
     deg = float(np.rad2deg(1.0))
     lines = [
-        f"# Baseline report: {m['controller']}",
+        f"# Eval report: {m['controller']} (suite `{m['suite_name']}`)",
         "",
         f"- suite `{m['suite_hash']}`, model `{m['model_hash']}`, git `{m['git_sha']}`",
         f"- sensor noise: {json.dumps(m['noise'])}",
-        f"- control rate {m['policy_rate_hz']:.0f} Hz, physics {m['physics_rate_hz']:.0f} Hz, "
-        f"nominal plant (no domain randomization)",
+        f"- control rate {m['policy_rate_hz']:.0f} Hz, physics {m['physics_rate_hz']:.0f} Hz",
         "",
-        "## Gate G3",
-        "",
-        f"**{'PASS' if m['gates']['G3']['pass'] else 'FAIL'}**",
-        "",
-        "| criterion | value | threshold | pass |",
-        "|---|---|---|---|",
     ]
-    for c in m["gates"]["G3"]["criteria"]:
-        lines.append(
-            f"| {c['name']} | {_fmt(c['value'], 1.0, 3)} | {c['threshold']} | {c['pass']} |"
-        )
-    lines += ["", "## Scenarios", ""]
+    for gname, g in m["gates"].items():
+        lines += [
+            f"## Gate {gname}",
+            "",
+            f"**{'PASS' if g['pass'] else 'FAIL'}**",
+            "",
+            "| criterion | value | threshold | pass |",
+            "|---|---|---|---|",
+        ]
+        for c in g["criteria"]:
+            lines.append(
+                f"| {c['name']} | {_fmt(c['value'], 1.0, 4)} | {c['threshold']} | {c['pass']} |"
+            )
+        lines.append("")
+    lines += ["## Scenarios", ""]
     for name, s in m["scenarios"].items():
         a = s["aggregate"]
         lines += [
@@ -137,8 +160,9 @@ def _report_md(m: dict[str, Any], videos: list[str]) -> str:
             ("max position error [cm]", "max_pos_err_m", 100.0),
             ("RMS position error [cm]", "rms_pos_err_m", 100.0),
             ("saturation [%]", "saturation_pct", 1.0),
-            ("mean |du| [cmd units]", "mean_abs_delta_u", 1.0),
-            ("action energy > 20 Hz [fraction]", "hf_energy_frac_gt20hz", 1.0),
+            ("mean |du| from 1 s [cmd units]", "mean_abs_delta_u", 1.0),
+            ("HF RMS of u > 20 Hz, from 1 s [cmd units]", "hf_rms_u", 1.0),
+            ("action energy > 20 Hz [fraction, report-only]", "hf_energy_frac_gt20hz", 1.0),
         ]
         for label, key, scale in rows:
             if key in a:
@@ -154,7 +178,8 @@ def _report_md(m: dict[str, Any], videos: list[str]) -> str:
     lines += [
         "## Limitations",
         "",
-        "- Nominal plant only: no domain randomization, latency, wind or motor mismatch yet.",
+        "- Plant, latency and noise per scenario (see `suite.resolved.yaml`); baselines fly the "
+        "same envelope and env as the policy (ADR-0006).",
         "- Position/velocity come from a noisy-estimator abstraction (white noise only).",
         "- Propulsion constants are estimates (see `configs/drone/default_5in.yaml`).",
         "",
@@ -170,16 +195,22 @@ def write_report(  # noqa: PLR0917
     results: dict[str, ScenarioResult],
     extra: dict[str, Any],
     videos: list[str] | None = None,
+    gates: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    checkpoint: str | None = None,
 ) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=True)
     (out / "plots").mkdir(exist_ok=True)
     (out / "trajectories").mkdir(exist_ok=True)
-    m = build_metrics(controller, suite, model_hash, results, extra)
+    m = build_metrics(controller, suite, model_hash, results, extra, gates, run_id, checkpoint)
+    m["suite_name"] = suite.name
     (out / "suite.resolved.yaml").write_text(
         yaml.safe_dump(suite.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
     )
     (out / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     for name, res in results.items():
+        if not res.trajectories:
+            continue
         _plot_scenario(res, out / "plots" / f"{name}.png")
         arrays: dict[str, Any] = dict(res.trajectories[0].to_npz())
         np.savez_compressed(out / "trajectories" / f"{name}_ep0.npz", **arrays)

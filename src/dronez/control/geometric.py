@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dronez.control.base import NominalVehicle
 from dronez.control.baseline import BaselineController
+from dronez.control.command_map import CommandMap
 from dronez.control.position import PositionGains
 from dronez.utils import rotations
 from dronez.utils.config import load_model
@@ -61,10 +62,14 @@ class GeometricSO3(BaselineController):
     """Lee et al. SO(3) attitude controller plus the shared position loop."""
 
     def __init__(
-        self, vehicle: NominalVehicle, config: GeometricConfig | None = None, dt: float = 0.01
+        self,
+        vehicle: NominalVehicle,
+        config: GeometricConfig | None = None,
+        dt: float = 0.01,
+        cmap: CommandMap | None = None,
     ) -> None:
         cfg = config if config is not None else load_geometric_config()
-        super().__init__(vehicle, cfg.position, dt)
+        super().__init__(vehicle, cfg.position, dt, cmap)
         self.cfg = cfg
         wn = np.array(cfg.attitude.wn_rad_s)
         zeta = np.array(cfg.attitude.zeta)

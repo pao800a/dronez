@@ -76,14 +76,41 @@ def quat_mul(q1: ArrayLike, q2: ArrayLike) -> F64:
     )
 
 
+def _cross3(a: F64, b: F64) -> F64:
+    """Cross product over the last axis (3 components), broadcasting.
+
+    Same result as ``np.cross`` but ~5x faster for small arrays (``np.cross`` spends most of its
+    time in ``moveaxis``), which matters: ``quat_rotate`` runs once per physics substep.
+    """
+    return np.stack(
+        [
+            a[..., 1] * b[..., 2] - a[..., 2] * b[..., 1],
+            a[..., 2] * b[..., 0] - a[..., 0] * b[..., 2],
+            a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0],
+        ],
+        axis=-1,
+    )
+
+
 def quat_rotate(q: ArrayLike, v: ArrayLike) -> F64:
     """Rotate vector(s) ``v`` by ``q``: body → world for an attitude quaternion."""
     q = _as_f64(q)
     v = _as_f64(v)
+    if q.shape == (4,) and v.shape == (3,):  # scalar fast path (hot: once per physics substep)
+        w, x, y, z = q.tolist()
+        vx, vy, vz = v.tolist()
+        tx, ty, tz = 2.0 * (y * vz - z * vy), 2.0 * (z * vx - x * vz), 2.0 * (x * vy - y * vx)
+        return np.array(
+            [
+                vx + w * tx + (y * tz - z * ty),
+                vy + w * ty + (z * tx - x * tz),
+                vz + w * tz + (x * ty - y * tx),
+            ]
+        )
     w = q[..., :1]
     u = q[..., 1:]
-    t = 2.0 * np.cross(u, v)
-    return v + w * t + np.cross(u, t)
+    t = 2.0 * _cross3(u, v)
+    return v + w * t + _cross3(u, t)
 
 
 def quat_rotate_inverse(q: ArrayLike, v: ArrayLike) -> F64:

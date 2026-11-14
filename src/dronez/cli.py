@@ -103,34 +103,41 @@ def _report_sim(cfg: DroneConfig, art: ModelArtifacts, sim_name: str, save_xml: 
 
 
 def train() -> None:
-    sys.exit(_not_yet("dronez-train"))
+    """``dronez-train --config <yaml> [--run-id ID] [--resume] [--device cpu|xpu]``."""
+    from dronez.rl.train import main  # noqa: PLC0415
+
+    sys.exit(main())
 
 
 def evaluate(argv: list[str] | None = None) -> None:
-    """``dronez-eval``: baseline scenario suite (``--controller``) or a trained run (``--run``)."""
+    """``dronez-eval``: scenario suite on a baseline (``--controller``) or a run (``--run``).
+
+    Both go through ``DronezAttitude-v0`` (architecture §7), with the same seeded episodes.
+    """
     parser = argparse.ArgumentParser(prog="dronez-eval", description=evaluate.__doc__)
-    parser.add_argument("--controller", choices=["pid", "geometric"], help="baseline controller")
-    parser.add_argument("--run", help="trained run id (not implemented before Phase 5)")
+    who = parser.add_mutually_exclusive_group(required=True)
+    who.add_argument("--controller", choices=["pid", "geometric"], help="baseline controller")
+    who.add_argument("--run", help="trained run id (runs/<run_id>/)")
+    parser.add_argument("--ckpt", default="best", help="best | latest | step_<n> (with --run)")
     parser.add_argument("--suite", default="baseline", help="name in configs/eval/ or a path")
     parser.add_argument("--drone", default="default_5in")
     parser.add_argument("--sim", default="default")
+    parser.add_argument("--workers", type=int, default=1, help="parallel episode workers")
     parser.add_argument("--video", action="store_true", help="render MP4s (needs EGL or OSMesa)")
     args = parser.parse_args(argv)
-    if args.run is not None or args.controller is None:
-        sys.exit(_not_yet("dronez-eval --run (trained policies)"))
-    sys.exit(_eval_baseline(args))
+    sys.exit(_eval(args))
 
 
-def _eval_baseline(args: argparse.Namespace) -> int:
+def _eval(args: argparse.Namespace) -> int:
     from dronez.cad.artifacts import MissingModelError, load_artifacts  # noqa: PLC0415
     from dronez.cad.schema import load_drone_config  # noqa: PLC0415
-    from dronez.control import CascadedPID, GeometricSO3, NominalVehicle  # noqa: PLC0415
-    from dronez.eval.report import run_dir_for, write_report  # noqa: PLC0415
-    from dronez.eval.runner import SimEnv  # noqa: PLC0415
+    from dronez.envs.config import EnvConfig  # noqa: PLC0415
+    from dronez.eval.controllers import ControllerSpec  # noqa: PLC0415
+    from dronez.eval.report import policy_dir_for, run_dir_for, write_report  # noqa: PLC0415
     from dronez.eval.scenarios import load_suite  # noqa: PLC0415
-    from dronez.eval.suite import run_baseline_suite  # noqa: PLC0415
+    from dronez.eval.suite import run_suite  # noqa: PLC0415
     from dronez.eval.video import render_video  # noqa: PLC0415
-    from dronez.sim import DroneSim, ImuNoiseConfig, load_sim_config  # noqa: PLC0415
+    from dronez.sim import load_sim_config  # noqa: PLC0415
 
     cfg = load_drone_config(args.drone)
     try:
@@ -140,23 +147,37 @@ def _eval_baseline(args: argparse.Namespace) -> int:
         return 1
     sim_cfg = load_sim_config(args.sim)
     suite = load_suite(args.suite)
-    vehicle = NominalVehicle.from_drone(cfg, art)
-    ctrl: CascadedPID | GeometricSO3
-    if args.controller == "pid":
-        ctrl = CascadedPID(vehicle, dt=sim_cfg.policy_dt_s)
-    else:
-        ctrl = GeometricSO3(vehicle, dt=sim_cfg.policy_dt_s)
-    noise = ImuNoiseConfig()
-    env = SimEnv(DroneSim(cfg, sim_cfg), noise)
-    results = run_baseline_suite(ctrl, env, suite)
-
+    env_cfg = EnvConfig(info_level="full")
     model_hash = art.mass_props.model_hash
-    out = run_dir_for(args.controller, suite.hash(), model_hash)
+    run_id: str | None = None
+    ckpt: str | None = None
+    if args.run is not None:
+        from dronez.rl.checkpoint import resolve_checkpoint  # noqa: PLC0415
+
+        try:
+            ckpt_path = resolve_checkpoint(args.run, args.ckpt)
+        except FileNotFoundError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        run_id, ckpt = args.run, ckpt_path.name
+        spec = ControllerSpec("policy", args.drone, args.sim, run_id=run_id, ckpt=ckpt)
+        label = f"policy:{run_id}/{ckpt}"
+        out = policy_dir_for(run_id, ckpt)
+        ctrl_cfg: dict[str, object] = {"run_id": run_id, "checkpoint": ckpt}
+    else:
+        spec = ControllerSpec(args.controller, args.drone, args.sim, authority=env_cfg.authority)
+        label = args.controller
+        out = run_dir_for(args.controller, suite.hash(), model_hash, env_cfg.hash())
+        ctrl_cfg = spec().cfg.model_dump(mode="json")  # type: ignore[attr-defined]
+    results = run_suite(
+        spec, suite, env_cfg, drone=args.drone, sim=args.sim, n_workers=args.workers
+    )
+
     videos: list[str] = []
     if args.video:
         for name in ("recovery_30deg", "impulse_small"):
             res = results.get(name)
-            if res is None:
+            if res is None or not res.trajectories:
                 continue
             path = render_video(
                 res.trajectories[0].qpos,
@@ -170,24 +191,29 @@ def _eval_baseline(args: argparse.Namespace) -> int:
     extra = {
         "drone": cfg.name,
         "seed": suite.seed,
-        "noise": noise.model_dump(),
-        "controller_config": ctrl.cfg.model_dump(mode="json"),
+        "env": "DronezAttitude-v0",
+        "env_config_hash": env_cfg.hash(),
+        "noise": env_cfg.noise.model_dump(),
+        "controller_config": ctrl_cfg,
         "policy_rate_hz": sim_cfg.policy_rate_hz,
         "physics_rate_hz": 1.0 / sim_cfg.physics_dt_s,
     }
-    m = write_report(out, args.controller, suite, model_hash, results, extra, videos)
-    gate = m["gates"]["G3"]
-    print(f"controller : {args.controller}")
+    m = write_report(
+        out, label, suite, model_hash, results, extra, videos, run_id=run_id, checkpoint=ckpt
+    )
+    print(f"controller : {label}")
     print(f"output dir : {out}")
     print(f"metrics    : {out / 'metrics.json'}")
     print(f"report     : {out / 'report.md'}")
     print(f"videos     : {videos or 'none'}")
-    for c in gate["criteria"]:
-        print(
-            f"  [{'ok' if c['pass'] else 'FAIL'}] {c['name']} = {c['value']} (<= {c['threshold']})"
-        )
-    print(f"gate G3    : {'PASS' if gate['pass'] else 'FAIL'}")
-    return 0 if gate["pass"] else 2
+    ok = True
+    for gname, gate in m.get("gates", {}).items():
+        for c in gate["criteria"]:
+            mark = "ok" if c["pass"] else "FAIL"
+            print(f"  [{mark}] {c['name']} = {c['value']} (<= {c['threshold']})")
+        print(f"gate {gname:<6}: {'PASS' if gate['pass'] else 'FAIL'}")
+        ok = ok and bool(gate["pass"])
+    return 0 if ok else 2
 
 
 def export() -> None:

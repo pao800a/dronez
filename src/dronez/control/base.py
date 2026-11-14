@@ -4,9 +4,8 @@ Baselines read only ``Sensed`` (attitude, gyro and the optional position/velocit
 *nominal* vehicle description built from the drone YAML and the CAD mass properties. They never see
 domain-randomized parameters or ground truth (docs/architecture.md §7).
 
-``thrusts_to_command`` is the **single** place where per-motor thrusts become the action returned
-by ``act``. Today the action is the normalized motor command ``u in [0, 1]`` (``MotorModel``
-inverse); the Phase 4 env action map (``a = 2u - 1`` or similar) only has to change there.
+``thrusts_to_action`` is the **single** place where per-motor thrusts become the action returned
+by ``act``: the ``CommandMap`` (ADR-0006 §3) inverse of the motor model, an action in [-1, 1]^4.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import NDArray
 
+from dronez.control.command_map import CommandMap
 from dronez.sim.config import GRAVITY_M_S2
 from dronez.sim.motor_model import MotorModel, MotorParams
 from dronez.sim.state import Sensed
@@ -105,5 +105,10 @@ class Setpoint:
 
 
 def thrusts_to_command(thrusts: F64, motor: MotorModel) -> F32:
-    """Per-motor thrust [N] -> the action returned by ``act`` (normalized command in [0, 1])."""
+    """Per-motor thrust [N] -> normalized motor command in [0, 1] (the plant-side inverse)."""
     return np.asarray(motor.thrust_to_command(thrusts), dtype=np.float32)
+
+
+def thrusts_to_action(thrusts: F64, motor: MotorModel, cmap: CommandMap) -> F32:
+    """Per-motor thrust [N] -> the action returned by ``act`` (``cmap`` inverse, in [-1, 1])."""
+    return np.asarray(cmap.command_to_action(motor.thrust_to_command(thrusts)), dtype=np.float32)

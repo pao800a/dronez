@@ -1,0 +1,15 @@
+# Gate thresholds (ADR-0006 §9, BUILD_PROMPT §8). Change only by ADR.
+G4:
+  hover_rms_tilt_rad: 0.0349          # 2 deg, pooled over episodes and samples, t >= 1 s
+  hover_crash_count: 0
+  recovery_lt90_success_rate: 0.95    # success_recovery(t_max = 1.5 s)
+G5:
+  recovery_full_success_rate: 0.90    # success_recovery(t_max = 2.5 s)
+  ground_contact_count: 0
+G6:
+  sweep_success_rate_pooled: 0.90     # success_recovery(t_max = 2.5 s)
+  sweep_success_rate_min_config: 0.80
+  latency20_success_rate: 0.90
+  hf_rms_u_margin: 0.001              # policy <= PID + margin, on the same env, seeds and noise
+  mean_abs_delta_u_margin: 0.001
+  smoothness_scenarios: [hover_hold, hover_hold_dr]

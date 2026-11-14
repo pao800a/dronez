@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pytest
@@ -12,20 +14,19 @@ from dronez.cad.artifacts import ModelArtifacts
 from dronez.cad.schema import DroneConfig
 from dronez.control import CascadedPID, NominalVehicle
 from dronez.eval.report import write_report
-from dronez.eval.runner import SimEnv, run_episode
+from dronez.eval.runner import run_episode
 from dronez.eval.scenarios import EvalSuite, Scenario, episode_seed, load_suite, make_plan
 from dronez.eval.suite import run_baseline_suite
 from dronez.eval.video import gl_backends, render_video
-from dronez.sim import DroneSim, ImuNoiseConfig, Sensed, SimConfig, build_model_from_artifacts
+from dronez.sim import Sensed
 
 pytestmark = pytest.mark.fast
 
 
 @pytest.fixture
-def env(sim_cfg_drone: DroneConfig, sim_art: ModelArtifacts) -> SimEnv:
-    cfg = SimConfig()
-    model, index = build_model_from_artifacts(sim_cfg_drone, sim_art, cfg)
-    return SimEnv(DroneSim(cfg=sim_cfg_drone, sim=cfg, model=model, index=index), ImuNoiseConfig())
+def env(synthetic_env: Callable[..., Any]) -> Any:
+    """``DronezAttitude-v0`` on the synthetic model (the runner drives the env, §7)."""
+    return synthetic_env()
 
 
 class _Spy:
@@ -43,7 +44,7 @@ class _Spy:
         return self.u
 
 
-def test_controller_receives_only_obs_and_sensed(env: SimEnv) -> None:
+def test_controller_receives_only_obs_and_sensed(env: Any) -> None:
     sc = Scenario(name="h", kind="hover_hold", n_episodes=1, duration_s=0.2)
     spy = _Spy(np.full(4, 0.3))
     traj = run_episode(env, spy, make_plan(sc, 1))
@@ -54,7 +55,7 @@ def test_controller_receives_only_obs_and_sensed(env: SimEnv) -> None:
         assert isinstance(sensed, Sensed)
 
 
-def test_policy_rate_and_seeding(env: SimEnv) -> None:
+def test_policy_rate_and_seeding(env: Any) -> None:
     assert env.dt == pytest.approx(0.01)
     assert env.decimation == 10
     assert episode_seed(0, 1, 2) == episode_seed(0, 1, 2) != episode_seed(0, 1, 3)
@@ -63,14 +64,14 @@ def test_policy_rate_and_seeding(env: SimEnv) -> None:
     np.testing.assert_array_equal(p1.qpos0, p2.qpos0)
 
 
-def test_crash_is_detected(env: SimEnv) -> None:
+def test_crash_is_detected(env: Any) -> None:
     sc = Scenario(name="h", kind="hover_hold", n_episodes=1, duration_s=2.0)
-    traj = run_episode(env, _Spy(np.zeros(4)), make_plan(sc, 1))  # motors at idle: falls
+    traj = run_episode(env, _Spy(np.full(4, -1.0)), make_plan(sc, 1))  # a = -1: idle, falls
     assert traj.crashed
     assert len(traj.t) < 201
 
 
-def test_suite_gate_and_report_files(env: SimEnv, vehicle_art: NominalVehicle, tmp_path) -> None:
+def test_suite_gate_and_report_files(env: Any, vehicle_art: NominalVehicle, tmp_path) -> None:
     hover = Scenario(name="hover_hold", kind="hover_hold", n_episodes=1, duration_s=2.0)
     recovery = Scenario(
         name="recovery_30deg", kind="recovery", n_episodes=2, duration_s=1.5,
@@ -118,3 +119,12 @@ def test_render_degrades_to_none_with_warning(monkeypatch, tmp_path) -> None:
     with pytest.warns(RuntimeWarning, match="no video"):
         out = render_video(np.tile([0, 0, 1.0, 1, 0, 0, 0], (2, 1)), tmp_path / "y.mp4")
     assert out is None
+
+
+def test_mismatch_patterns_follow_the_motor_table(env: Any) -> None:
+    """G6 mismatch signs come from the drone YAML (PX4 order M0 FR, M1 RL, M2 FL, M3 RR)."""
+    from dronez.eval.runner import mismatch_pattern
+
+    np.testing.assert_array_equal(mismatch_pattern("roll", env), [-0.05, 0.05, 0.05, -0.05])
+    np.testing.assert_array_equal(mismatch_pattern("yaw", env), [-0.05, -0.05, 0.05, 0.05])
+    np.testing.assert_array_equal(mismatch_pattern(None, env), np.zeros(4))

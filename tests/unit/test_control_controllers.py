@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -20,9 +23,9 @@ from dronez.control import (
 from dronez.control.geometric import hat, vee
 from dronez.control.pid import RateGains
 from dronez.eval import metrics as M
-from dronez.eval.runner import SimEnv, run_episode
+from dronez.eval.runner import run_episode
 from dronez.eval.scenarios import Scenario, make_plan
-from dronez.sim import DroneSim, ImuNoiseConfig, SimConfig, build_model_from_artifacts
+from dronez.sim import ImuNoiseConfig
 from dronez.utils import rotations
 
 pytestmark = pytest.mark.fast
@@ -34,10 +37,9 @@ def vehicle(sim_cfg_drone: DroneConfig, sim_art: ModelArtifacts) -> NominalVehic
 
 
 @pytest.fixture
-def env(sim_cfg_drone: DroneConfig, sim_art: ModelArtifacts) -> SimEnv:
-    cfg = SimConfig()
-    model, index = build_model_from_artifacts(sim_cfg_drone, sim_art, cfg)
-    return SimEnv(DroneSim(cfg=sim_cfg_drone, sim=cfg, model=model, index=index), ImuNoiseConfig())
+def env(synthetic_env: Callable[..., Any]) -> Any:
+    """``DronezAttitude-v0`` on the synthetic model, nominal plant, default sensor noise."""
+    return synthetic_env()
 
 
 def _make(kind: str, vehicle: NominalVehicle) -> CascadedPID | GeometricSO3:
@@ -65,18 +67,19 @@ def test_protocol_and_action_range(kind: str, vehicle: NominalVehicle) -> None:
     a = ctrl.act(np.zeros(0, np.float32), s)
     assert a.shape == (4,)
     assert a.dtype == np.float32
-    assert np.all((a >= 0) & (a <= 1))
-    # level, at rest, no position setpoint: command equals the CoM-trimmed hover command
+    assert np.all((a >= -1) & (a <= 1))  # ADR-0006 §3: the action space is [-1, 1]^4
+    # level, at rest, no position setpoint: the action maps to the CoM-trimmed hover command
     expected = ctrl.motor.thrust_to_command(ctrl.mixer.allocate(vehicle.weight_n, np.zeros(3)))
-    np.testing.assert_allclose(a, expected, atol=1e-6)
+    np.testing.assert_allclose(ctrl.cmap.action_to_command(a), expected, atol=1e-6)
+    assert np.max(np.abs(a)) < 0.01  # the nominal hover is a ~ 0
 
 
 @pytest.mark.parametrize("kind", ["pid", "geometric"])
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_recovers_from_30deg_within_1s_ideal_sensors(
-    kind: str, seed: int, env: SimEnv, vehicle: NominalVehicle
+    kind: str, seed: int, synthetic_env: Callable[..., Any], vehicle: NominalVehicle
 ) -> None:
-    env.noise.cfg = ImuNoiseConfig.ideal()
+    env = synthetic_env(noise=ImuNoiseConfig.ideal())
     traj = run_episode(env, _make(kind, vehicle), make_plan(RECOVERY, seed))
     err = M.attitude_error(traj.quat_wxyz, traj.quat_target)
     assert err[0] == pytest.approx(np.deg2rad(30.0), abs=1e-9)
@@ -86,13 +89,13 @@ def test_recovers_from_30deg_within_1s_ideal_sensors(
 
 
 @pytest.mark.parametrize("kind", ["pid", "geometric"])
-def test_hover_hold_with_noise(kind: str, env: SimEnv, vehicle: NominalVehicle) -> None:
+def test_hover_hold_with_noise(kind: str, env: Any, vehicle: NominalVehicle) -> None:
     traj = run_episode(env, _make(kind, vehicle), make_plan(HOVER, 5))
     assert M.position_error(traj.pos_w, traj.pos_target).max() < 0.05
 
 
 @pytest.mark.parametrize("kind", ["pid", "geometric"])
-def test_runs_are_deterministic_per_seed(kind: str, env: SimEnv, vehicle: NominalVehicle) -> None:
+def test_runs_are_deterministic_per_seed(kind: str, env: Any, vehicle: NominalVehicle) -> None:
     a = run_episode(env, _make(kind, vehicle), make_plan(RECOVERY, 11))
     b = run_episode(env, _make(kind, vehicle), make_plan(RECOVERY, 11))
     np.testing.assert_array_equal(a.u, b.u)

@@ -1,0 +1,25 @@
+# CI / smoke run (ADR-0006 §8): 8192 steps, DummyVecEnv, level 0, a 4-episode mini-eval at the end.
+# Asserts (tests/integration): state finished; step_*/ has model.zip + vecnormalize.pkl + ckpt.json;
+# TensorBoard has every reward/<term>; the reloaded checkpoint gives a finite deterministic action;
+# obs_rms.mean/var still equal the ObsLayout offsets/scales^2. No learning-curve asserts.
+run:
+  stage: smoke
+  seed: 0
+  total_timesteps: 8192
+  n_envs: 2
+  device: cpu
+  vec_env: dummy
+env_id: DronezAttitude-v0
+env:
+  info_level: minimal
+  episode_len_s: 2.0
+  start_level: 0
+ppo:
+  n_steps: 1024
+  batch_size: 256
+  n_epochs: 2
+  learning_rate: 3.0e-4
+curriculum:
+  enabled: false
+checkpoint_every: 4096
+final_eval_episodes: 4

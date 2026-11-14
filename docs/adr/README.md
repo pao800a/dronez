@@ -8,4 +8,6 @@ One file per decision: `NNNN-short-title.md`, with sections Status / Context / D
 | [0002](0002-github-repo-and-identity.md) | Public GitHub repo `pao800a/dronez`, noreply commit identity | Accepted |
 | [0003](0003-github-mcp-auth.md) | GitHub MCP authenticated with the gh CLI token | Accepted |
 | [0004](0004-context7-keyless.md) | Context7 MCP, keyless by default | Accepted |
-| [0005](0005-architecture-and-layering.md) | Architecture, layering and artifact layout | Accepted |
+| [0005](0005-architecture-and-layering.md) | Architecture, layering and artifact layout | Accepted (rates and command map refined by 0006) |
+| [0006](0006-rl-spec.md) | RL spec: rates, obs/action/reward, termination, curriculum, DR, PPO, gates G4–G6 | Accepted |
+| [0007](0007-cpu-training-and-n-envs.md) | CPU training, 4 SubprocVecEnv workers, 1 torch thread (SPS benchmark) | Accepted |

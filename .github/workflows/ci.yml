@@ -47,17 +47,42 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Fast tests (unit + hooks)
-        run: uv run pytest -m fast -q
       # The model cache dir is keyed by config + CAD_VERSION, so restoring a stale entry is harmless.
+      # The env tests (marked fast) read the built model, so build it before the fast suite.
       - uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ci-data/models
           key: models-${{ runner.os }}-${{ hashFiles('configs/drone/**', 'src/dronez/cad/**') }}
       - name: Build model
         run: uv run dronez-build-model --drone default_5in
+      - name: Fast tests (unit + env + hooks)
+        run: uv run pytest -m fast -q
       - name: CAD tests
         run: uv run pytest -m cad -q
       - name: Physics sanity suite
         run: uv run pytest -m physics -q
-      # Phase 5+: ~2-minute CPU smoke training.
+
+  # Smoke training (ADR-0006 §8: 8192 steps, 2 envs, CPU) + run_suite on the checkpoint and on the
+  # PID through the env. Ubuntu only: windows stays on fast / cad / physics.
+  integration:
+    name: integration (smoke training + eval)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DRONEZ_DATA_DIR: ${{ github.workspace }}/.ci-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ci-data/models
+          key: models-${{ runner.os }}-${{ hashFiles('configs/drone/**', 'src/dronez/cad/**') }}
+      - name: Build model
+        run: uv run dronez-build-model --drone default_5in
+      # The test copies the cached model into its own tmp DRONEZ_DATA_DIR and writes the run there.
+      - name: Smoke training and eval
+        run: uv run pytest -m integration -q --durations=5

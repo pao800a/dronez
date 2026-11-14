@@ -74,7 +74,8 @@ def test_hf_energy_fraction_separates_bands() -> None:
     assert M.hf_energy_fraction(slow, rate) < 1e-6
     assert M.hf_energy_fraction(fast, rate) > 1 - 1e-6
     assert M.hf_energy_fraction(slow + 0.5 * fast, rate) == pytest.approx(0.25 / 1.25, abs=1e-6)
-    assert M.hf_energy_fraction(np.full((n, 4), 0.3), rate) == 0.0  # DC only
+    # DC only: the detrended AC RMS is below 1e-3, so the (report-only) fraction is undefined
+    assert np.isnan(M.hf_energy_fraction(np.full((n, 4), 0.3), rate))
 
 
 def test_success_window_and_crash() -> None:
