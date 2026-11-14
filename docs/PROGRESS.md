@@ -3,7 +3,9 @@
 > Resume protocol: a new session continues from `CLAUDE.md` plus this file. Update it at the end of every phase, before every long-running job, and before compaction.
 
 ## Current phase
-**Phase 0: Bootstrap** (branch `phase-0-bootstrap`). Started 2026-11-13.
+**Phase 1: CAD** (branch `phase-1-cad`). Started 2026-11-14.
+
+Phase 0 complete: PR #1 merged as `d6aea3e` (2026-11-13); CI run 43518516684 green (lint, ubuntu, windows).
 
 ## Done
 - Environment checked (2026-11-13): WSL2 Ubuntu 24.04, i7-1255U (WSL capped at 4 vCPU / 6 GB by `.wslconfig`), Iris Xe (no `torch.xpu`: `torch.xpu.is_available() == False` on torch 2.15.0+cpu), Python 3.12, uv 0.13.6, gh logged in as `pao800a`.
@@ -14,11 +16,15 @@
 - `CLAUDE.md`, `docs/conventions.md` (motor diagram, sign table), `.mcp.json`, pre-commit, CI (ubuntu + windows), setup scripts.
 - `docs/architecture.md` + ADR-0005 (architect, Opus): layering utils←cad←sim←control←envs←rl←eval←deploy; model cache `models/<name>-<hash>/` keyed by config + `CAD_VERSION`; MjSpec built in-process; one `act(obs, sensed)` controller interface; open questions in §Open questions of architecture.md.
 
+- Phase 1 CAD (cad-engineer, 2026-11-14): `configs/drone/default_5in.yaml`, `src/dronez/cad/` (schema, artifacts, materials, parts, assembly, mass_props, export, render), `dronez-build-model` (CAD stage). G1 results from `$DRONEZ_DATA_DIR/models/default_5in-92c403696b/mass_props.json`: mass 0.5143 kg (target 0.55, -6.5 %), CoM (C frame) [0.06, 0.00, 24.7] mm, principal inertias 1.709e-3 / 1.894e-3 / 3.210e-3 kg·m². Renders checked (motor order and spin layout correct). `pytest -m "fast or cad"`: 92 passed. `CAD_VERSION` fingerprint test in `tests/unit/test_cad_version.py`.
+
 ## Next
-1. Merge PR #1 (https://github.com/pao800a/dronez/pull/1) once CI is green.
-2. Phase 1: `cad-engineer` builds `configs/drone/default_5in.yaml` and `src/dronez/cad/`, then gate G1.
+1. Phase 1: `cad-engineer` builds `configs/drone/default_5in.yaml` and `src/dronez/cad/` (parts, assembly, mass_props, export, render) and `dronez-build-model`; then gate G1 (inertia SPD + triangle inequality, AUW ±10 %, CoM xy within a few mm, renders checked).
+2. Phase 2: sim (`sim-engineer` + `test-engineer`, `physics-auditor`).
 
 ## Open problems / risks
+- Propulsion constants in `default_5in.yaml` are **estimates** (k_f 1.91e-6, k_m/k_f 0.016 m, tau_m 30 ms → T/W ≈ 6.7). Phase 2 must sanity-check them; replace them with thrust-stand data when available.
+- CAD mass is 6.5 % under target (no screws, wires or antenna). Use `measured_overrides` once the real AUW is known.
 - MuJoCo 4: setting `MUJOCO_GL` makes `import mujoco` initialize that GL backend. `egl` without libEGL raises at import; on Windows `egl` is invalid. Set it only in render code or render jobs, never globally (CI run 43517234038).
 - Project subagents created mid-session became available after a short delay (hot reload). If one is ever missing, delegate via `general-purpose` with an explicit `model` and the instruction to follow `.claude/agents/<name>.md`.
 - MuJoCo is **4.0.1** (new major). Check MjSpec, actuator and sensor API changes via Context7 before the sim phase.
