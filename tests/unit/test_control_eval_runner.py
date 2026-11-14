@@ -119,3 +119,12 @@ def test_render_degrades_to_none_with_warning(monkeypatch, tmp_path) -> None:
     with pytest.warns(RuntimeWarning, match="no video"):
         out = render_video(np.tile([0, 0, 1.0, 1, 0, 0, 0], (2, 1)), tmp_path / "y.mp4")
     assert out is None
+
+
+def test_mismatch_patterns_follow_the_motor_table(env: Any) -> None:
+    """G6 mismatch signs come from the drone YAML (PX4 order M0 FR, M1 RL, M2 FL, M3 RR)."""
+    from dronez.eval.runner import mismatch_pattern
+
+    np.testing.assert_array_equal(mismatch_pattern("roll", env), [-0.05, 0.05, 0.05, -0.05])
+    np.testing.assert_array_equal(mismatch_pattern("yaw", env), [-0.05, -0.05, 0.05, 0.05])
+    np.testing.assert_array_equal(mismatch_pattern(None, env), np.zeros(4))

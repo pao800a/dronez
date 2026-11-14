@@ -26,11 +26,21 @@ from dronez.sim import PhysParams, Sensed
 
 F64 = NDArray[np.float64]
 
-#: per-motor thrust-constant mismatch patterns (ADR-0006 §9 G6): +-5 %
-_MISMATCH = {
-    "roll": np.array([-0.05, 0.05, 0.05, -0.05]),  # M0, M3 -5 %; M1, M2 +5 %
-    "yaw": np.array([-0.05, -0.05, 0.05, 0.05]),  # M0, M1 -5 %; M2, M3 +5 %
-}
+#: per-motor thrust-constant mismatch amplitude (ADR-0006 §9 G6)
+_MISMATCH_FRAC = 0.05
+
+
+def mismatch_pattern(kind: str | None, env: DronezBaseEnv) -> F64:
+    """Per-motor ``k_f`` offsets derived from the drone config (never typed by hand):
+    ``roll``: +5 % on the left motors (y > 0), -5 % on the right; ``yaw``: -5 % on the CCW motors,
+    +5 % on the CW ones. Anything else: zeros."""
+    cfg = env.drone_cfg
+    if kind == "roll":
+        y = np.array([p[1] for p in cfg.motor_positions_c_m], dtype=np.float64)
+        return _MISMATCH_FRAC * np.sign(y)
+    if kind == "yaw":
+        return -_MISMATCH_FRAC * np.array(cfg.spin_signs, dtype=np.float64)
+    return np.zeros(len(cfg.motors))
 
 
 @dataclass
@@ -85,7 +95,9 @@ def resolve_params(spec: DrSpec, plan: EpisodePlan, env: DronezBaseEnv) -> tuple
             phys.latency_steps = round(lat / env.sim_cfg.physics_dt_s)
         return phys, draw.noise_scale
     o = dict(spec.overrides)
-    k_f = float(o.get("k_f", 1.0)) * (1.0 + _MISMATCH.get(str(o.get("mismatch")), np.zeros(4)))
+    mis = o.get("mismatch")
+    pattern = mismatch_pattern(None if mis is None else str(mis), env)
+    k_f = float(o.get("k_f", 1.0)) * (1.0 + pattern)
     com = tuple(float(x) for x in o.get("com_mm", (0.0, 0.0, 0.0)))
     params = rd.make_params(
         mass=float(o.get("mass", 1.0)),

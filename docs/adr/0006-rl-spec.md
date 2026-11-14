@@ -247,7 +247,7 @@ The target is `p_t = (0, 0, z_t)`, `z_t ~ U(1.5, 3)` m. Promotion uses SR ≥ 0.
 | k_f, common | h = 0.15 | ±15 % | `MotorParams.k_f` and the gear |
 | k_f, per-motor mismatch (4) | h = 0.05 | ±5 % | same |
 | k_m | h = 0.20 | ±20 % | gear `−s_i k_m/k_f` |
-| τ_m | log-uniform: 30 ms · 2^(d·z) (common), × (1 + 0.1·d·z_i) per motor | 15–60 ms | `MotorParams.tau_m_s` |
+| τ_m | log-uniform: 30 ms · 2^(d·z) (common), × (1 + 0.1·d·z_i) per motor | 15–60 ms common; 13.5–66 ms per motor | `MotorParams.tau_m_s` |
 | latency | `round(d · 20 ms · U)` (edge: U = 1) | 0–20 ms | `ActionDelay` |
 | battery (ω_max scale) | U(1 − 0.15d, 1 + 0.05d) | 0.85–1.05 | `PhysParams.battery_scale` |
 | sensor noise scale (gyro/accel/quat/vel densities and bias std) | 2^(d·z) | ×0.5–×2 | `ImuNoiseConfig` per episode |

@@ -249,7 +249,8 @@ def train(
         ckpt = CheckpointCallback(run, cfg.checkpoint_every, cfg.keep_checkpoints, status, cur)
         callbacks: list[Any] = [InfoLogCallback(cur, n.clip_obs), status, ckpt]
         if cc.enabled:
-            eval_cfg = cfg.env.model_copy(update={"info_level": "minimal"})
+            # promotion evals run the current level only (no lower-level replay, ADR-0006 §6)
+            eval_cfg = cfg.env.model_copy(update={"info_level": "minimal", "p_lower_level": 0.0})
             eval_raw = make_vec_env(cfg, cfg.run.n_envs, eval_cfg)
             eval_venv = make_vec_normalize(
                 VecMonitor(eval_raw), layout, gamma=n.gamma, clip_obs=n.clip_obs,

@@ -292,12 +292,14 @@ class DronezBaseEnv(gym.Env[F32, F32]):
             u = self.cmap.action_to_command(a)
             ground_z, rate_sq = self.cfg.ground_z_m, self._rate_limit_sq
             has_dist, dist, true = self._has_dist, self._dist, self._true
+            bid = sim.index.body_id
             for _ in range(self.decimation):
                 if has_dist:
                     self._force, self._torque = dist.wrench(sim.time_s, true)
                     sim.set_wrench(self._force, self._torque)
                 sim.substep(u)
-                if d.ncon > 0 or d.qpos[2] < ground_z:
+                # CoM z (ADR-0006 §5); xipos is from the substep's forward pass (<= 1 ms old)
+                if d.ncon > 0 or d.xipos[bid, 2] < ground_z:
                     reason = "ground_contact"
                     break
                 w = d.qvel[3:6]
