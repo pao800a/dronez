@@ -58,4 +58,6 @@ jobs:
         run: uv run dronez-build-model --drone default_5in
       - name: CAD tests
         run: uv run pytest -m cad -q
-      # Phase 2+: physics suite. Phase 5+: ~2-minute CPU smoke training.
+      - name: Physics sanity suite
+        run: uv run pytest -m physics -q
+      # Phase 5+: ~2-minute CPU smoke training.

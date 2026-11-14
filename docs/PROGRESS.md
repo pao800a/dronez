@@ -3,7 +3,9 @@
 > Resume protocol: a new session continues from `CLAUDE.md` plus this file. Update it at the end of every phase, before every long-running job, and before compaction.
 
 ## Current phase
-**Phase 1: CAD** (branch `phase-1-cad`). Started 2026-11-14.
+**Phase 2: Sim** (branch `phase-2-sim`). Started 2026-11-14.
+
+Phase 1 complete: PR #2 merged as `1c00465` (2026-11-14); CI run 43570176840 green (lint, ubuntu, windows; same 514.3 g mass on both).
 
 Phase 0 complete: PR #1 merged as `d6aea3e` (2026-11-13); CI run 43518516684 green (lint, ubuntu, windows).
 
@@ -19,8 +21,8 @@ Phase 0 complete: PR #1 merged as `d6aea3e` (2026-11-13); CI run 43518516684 gre
 - Phase 1 CAD (cad-engineer, 2026-11-14): `configs/drone/default_5in.yaml`, `src/dronez/cad/` (schema, artifacts, materials, parts, assembly, mass_props, export, render), `dronez-build-model` (CAD stage). G1 results from `$DRONEZ_DATA_DIR/models/default_5in-92c403696b/mass_props.json`: mass 0.5143 kg (target 0.55, -6.5 %), CoM (C frame) [0.06, 0.00, 24.7] mm, principal inertias 1.709e-3 / 1.894e-3 / 3.210e-3 kg·m². Renders checked (motor order and spin layout correct). `pytest -m "fast or cad"`: 92 passed. `CAD_VERSION` fingerprint test in `tests/unit/test_cad_version.py`.
 
 ## Next
-1. Phase 1: `cad-engineer` builds `configs/drone/default_5in.yaml` and `src/dronez/cad/` (parts, assembly, mass_props, export, render) and `dronez-build-model`; then gate G1 (inertia SPD + triangle inequality, AUW ±10 %, CoM xy within a few mm, renders checked).
-2. Phase 2: sim (`sim-engineer` + `test-engineer`, `physics-auditor`).
+1. Phase 2: `sim-engineer` builds `src/dronez/sim/` (MjSpec builder, motor model, sensors, disturbances, DroneSim) and `configs/sim/default.yaml`; `test-engineer` writes `tests/physics/` and the CI physics step in parallel; then `physics-auditor` (Opus) review; gate G2.
+2. Phase 3: baselines (`controls-engineer`).
 
 ## Open problems / risks
 - Propulsion constants in `default_5in.yaml` are **estimates** (k_f 1.91e-6, k_m/k_f 0.016 m, tau_m 30 ms → T/W ≈ 6.7). Phase 2 must sanity-check them; replace them with thrust-stand data when available.
@@ -39,6 +41,7 @@ _None yet._
 |---|---|---|---|
 | 2026-11-13 | 0 | (main session) | The initial plan ran on Opus 5.5 (session default). |
 | 2026-11-13 | 0 | architect (via general-purpose, model=opus) | `docs/architecture.md` + ADR-0005 (planned call 1 of ~3). |
+| 2026-11-14 | 2 | physics-auditor | G2 review of `src/dronez/sim/`, `cad/mass_props.py`, `tests/physics/` (Phase 2 call 1 of ~3). |
 
 ## User action items
 - [ ] `echo 'export GITHUB_PAT="$(gh auth token)"' >> ~/.bashrc`, then restart Claude Code (loads the GitHub MCP).
