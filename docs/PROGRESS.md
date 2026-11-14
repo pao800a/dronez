@@ -20,12 +20,14 @@ Phase 0 complete: PR #1 merged as `d6aea3e` (2026-11-13); CI run 43518516684 gre
 
 - Phase 1 CAD (cad-engineer, 2026-11-14): `configs/drone/default_5in.yaml`, `src/dronez/cad/` (schema, artifacts, materials, parts, assembly, mass_props, export, render), `dronez-build-model` (CAD stage). G1 results from `$DRONEZ_DATA_DIR/models/default_5in-92c403696b/mass_props.json`: mass 0.5143 kg (target 0.55, -6.5 %), CoM (C frame) [0.06, 0.00, 24.7] mm, principal inertias 1.709e-3 / 1.894e-3 / 3.210e-3 kg·m². Renders checked (motor order and spin layout correct). `pytest -m "fast or cad"`: 92 passed. `CAD_VERSION` fingerprint test in `tests/unit/test_cad_version.py`.
 
+- Phase 2 Sim (sim-engineer + test-engineer, 2026-11-14): `src/dronez/sim/` (SimConfig 1 kHz / decimation 10 / rk4, MjSpec builder, MotorModel with exact lag, rotor reaction + gyroscopic torque, ImuNoiseModel, DisturbanceModel, ActionDelay prefilled at reset, DroneSim), `configs/sim/default.yaml`, `tests/physics/` (30 tests). MuJoCo 4.0.1 facts verified by script: `mj_setConst` needed after mass/inertia/ipos edits (requires `body.simple = 0`); `xfrc_applied` is world-frame at the CoM; accelerometer = specific force; `mj_step` sensors are pre-step, so `true_state()` runs `mj_forward`. rk4 chosen: torque-free tumble energy drift 1.7e-8 vs 1.3 % (euler/implicitfast) over 10 s (`tests/unit/test_sim_plant.py::test_default_integrator_beats_euler_on_a_tumble`). Hover cmd 0.2864 (1.261 N/motor), T/W 9.53. G2: physics-auditor (Opus) found no HIGH; all 3 MEDIUM + 4 LOW findings fixed and re-checked by reading the diff. `CAD_VERSION` = 2 (principal-axis ordering).
+
 ## Next
-1. Phase 2: `sim-engineer` builds `src/dronez/sim/` (MjSpec builder, motor model, sensors, disturbances, DroneSim) and `configs/sim/default.yaml`; `test-engineer` writes `tests/physics/` and the CI physics step in parallel; then `physics-auditor` (Opus) review; gate G2.
-2. Phase 3: baselines (`controls-engineer`).
+1. Merge the Phase 2 PR on green CI.
+2. Phase 3: `controls-engineer` builds `control/` (mixer from config, cascaded PID, geometric SO(3)), first `eval/` skeleton + `video.py`; gate G3 (both stabilize from 30°, hover ±5 cm). Use `DroneSim.trim_command()` semantics: equal-split hover drifts because the CAD CoM is 0.06 mm off the hub centroid (real physics; controllers must trim).
 
 ## Open problems / risks
-- Propulsion constants in `default_5in.yaml` are **estimates** (k_f 1.91e-6, k_m/k_f 0.016 m, tau_m 30 ms → T/W ≈ 6.7). Phase 2 must sanity-check them; replace them with thrust-stand data when available.
+- Propulsion constants in `default_5in.yaml` are **estimates** for a 2306 ~2450 KV motor on 4S (k_f 1.48e-6, k_m/k_f 0.016 m, ω_max 2850 rad/s, tau_m 30 ms → T_max 12.0 N/motor, T/W 9.53 per `dronez-build-model`). Replace with thrust-stand data before any sim-to-real claim.
 - CAD mass is 6.5 % under target (no screws, wires or antenna). Use `measured_overrides` once the real AUW is known.
 - MuJoCo 4: setting `MUJOCO_GL` makes `import mujoco` initialize that GL backend. `egl` without libEGL raises at import; on Windows `egl` is invalid. Set it only in render code or render jobs, never globally (CI run 43517234038).
 - Project subagents created mid-session became available after a short delay (hot reload). If one is ever missing, delegate via `general-purpose` with an explicit `model` and the instruction to follow `.claude/agents/<name>.md`.

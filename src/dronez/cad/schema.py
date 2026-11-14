@@ -16,7 +16,7 @@ from dronez.utils.config import load_model, stable_hash
 
 # Bump whenever a change to the CAD code alters any artifact. ``tests/unit/test_cad_version.py``
 # fingerprints ``src/dronez/cad/*.py`` and fails when the code changed without a bump.
-CAD_VERSION = "1"
+CAD_VERSION = "2"
 
 MASS_PROPS_SCHEMA_VERSION = 1
 

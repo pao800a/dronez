@@ -80,10 +80,10 @@ def _make_drone_sim(cfg: DroneConfig, sim_cfg: Any, mass_kg: float) -> tuple[Any
 class Plant:
     """One independent DroneSim (own MjModel/MjData) plus the helpers the tests need."""
 
-    def __init__(self, rig: Rig) -> None:
+    def __init__(self, rig: Rig, sim_cfg: Any = None) -> None:
         self.rig = rig
         self.sim, self.model, self.index, self.nominal = _make_drone_sim(
-            rig.cfg, rig.sim_cfg, rig.mass_kg
+            rig.cfg, rig.sim_cfg if sim_cfg is None else sim_cfg, rig.mass_kg
         )
         self.params = self.nominal
         self.motor = MotorModel(self.nominal.motor)
@@ -207,8 +207,9 @@ class Rig:
         )
         return np.linalg.solve(a, np.array([self.mass_kg * self.g, 0.0, 0.0, 0.0]))
 
-    def new_plant(self) -> Plant:
-        return Plant(self)
+    def new_plant(self, **sim_flags: Any) -> Plant:
+        """A fresh plant; ``sim_flags`` override ``SimConfig`` fields (``rotor_inertia=False``)."""
+        return Plant(self, self.sim_cfg.model_copy(update=sim_flags) if sim_flags else None)
 
     def steps(self, seconds: float) -> int:
         return round(seconds / self.dt)

@@ -21,7 +21,7 @@ CW, CCW = [2, 3], [0, 1]
 SIGN_CASES = [
     pytest.param((RIGHT, LEFT, 0, -1, 0.1, 0.08), id="right-up-rolls-left"),
     pytest.param((FRONT, REAR, 1, -1, 0.1, 0.08), id="front-up-nose-up"),
-    pytest.param((CW, CCW, 2, +1, 0.3, 0.40), id="cw-up-yaws-left"),
+    pytest.param((CW, CCW, 2, +1, 0.3, 0.08), id="cw-up-yaws-left"),
 ]
 
 
@@ -47,6 +47,9 @@ def _expected_rates(rig, thrust_cmd: np.ndarray, n: int) -> np.ndarray:
             ]
         )
         rate += inv_i @ tau * rig.dt
+    # rotor reaction: integral of -sum s_i I_r dw_i/dt z_b is -I_r sum s_i (w_i(n) - w_h) z_b
+    i_r = float(rig.cfg.propulsion.rotor_inertia_kg_m2 or 0.0)
+    rate += inv_i @ np.array([0.0, 0.0, -i_r * np.sum(rig.spin * (w - w_h))])
     return rate
 
 
@@ -56,8 +59,8 @@ def test_differential_sign(rig, case):
 
     Expectation: omega[axis] * sign > 0, the other two axes stay below 10 % of the main one
     (pure mixer pattern; only CAD inertia products couple), and the main-axis rate matches the
-    analytic value from the YAML constants within ``tol`` (8 % roll/pitch; 40 % yaw, which is
-    also affected by rotor-spin-up reaction torque if the sim models it).
+    analytic value from the YAML constants within ``tol`` (8 % on all axes; the analytic yaw
+    value includes the rotor spin-up reaction torque -I_r sum(s dw), which dominates the transient).
     """
     plus, minus, axis, sign, d, tol = case
     plant = rig.new_plant()

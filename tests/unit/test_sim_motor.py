@@ -114,3 +114,10 @@ def test_optional_effects() -> None:
     g = ground_effect_gain(np.array([0.2, 0.1, 0.01]), 0.065, 1.5)
     assert np.all(np.diff(g) >= 0.0)
     assert g[-1] == pytest.approx(1.5)
+
+
+def test_battery_scale_validated_after_scaling() -> None:
+    params = _params()
+    assert params.with_battery_scale(0.9).omega_max == pytest.approx(0.9 * params.omega_max)
+    with pytest.raises(ValueError, match="omega_max"):
+        params.with_battery_scale(100.0 / 2170.0)  # omega_max = 100 < omega_min

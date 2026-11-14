@@ -269,3 +269,46 @@ def test_optional_rotor_drag_and_ground_effect(
         s.reset(s.default_qpos(0.15), np.zeros(6), s.motor.command_to_omega(u))
         run(s, u, 50)
     assert ge.true_state().thrust.sum() > ref.true_state().thrust.sum()
+
+
+def test_reset_prefills_delay_with_omega0_command(sim: DroneSim) -> None:
+    """The first N commands after reset are the one that holds omega0, not the fresh action."""
+    n = 5
+    p = sim.nominal_params()
+    p.latency_steps = n
+    sim.set_params(p)
+    u0 = sim.trim_command()
+    omega0 = sim.motor.command_to_omega(u0)
+    sim.reset(sim.default_qpos(5.0), np.zeros(6), omega0)
+    for k in range(n + 2):
+        sim.substep(np.ones(4))
+        if k < n:  # steps 0..N-1 still see the omega0 command: motors do not move
+            np.testing.assert_allclose(sim.motor.omega, omega0, rtol=1e-12)
+        else:
+            assert np.all(sim.motor.omega > omega0)
+
+
+def test_battery_scale_must_keep_omega_max_above_min(sim: DroneSim) -> None:
+    p = sim.nominal_params()
+    p.battery_scale = 0.05  # omega_max * 0.05 < omega_min
+    with pytest.raises(ValueError, match="omega_max"):
+        sim.set_params(p)
+    with pytest.raises(ValueError, match="positive"):
+        sim.nominal_motor.with_battery_scale(0.0)
+
+
+def test_rotor_inertia_flag_default_on_and_composes_with_wrench(
+    sim_cfg_drone: DroneConfig, sim_art: ModelArtifacts
+) -> None:
+    """The rotor torque is added to ``set_wrench``, never overwriting it (symmetric spin-up has
+    zero net rotor torque, so on/off must agree and keep the wrench-driven roll rate)."""
+    assert SimConfig().rotor_inertia is True
+    rates = []
+    for flag in (True, False):
+        s = make_sim(sim_cfg_drone, sim_art, rotor_inertia=flag)
+        s.reset(s.default_qpos(5.0), np.zeros(6), np.full(4, 700.0))
+        s.set_wrench(np.zeros(3), np.array([0.01, 0.0, 0.0]))
+        run(s, np.full(4, 0.5), 20)
+        rates.append(s.true_state().angvel_b)
+    assert rates[0][0] > 0.05
+    np.testing.assert_allclose(rates[0], rates[1], atol=1e-9)

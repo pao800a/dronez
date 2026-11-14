@@ -81,9 +81,21 @@ class MotorParams:
         )
 
     def with_battery_scale(self, scale: float | ArrayLike) -> MotorParams:
-        """Copy with ``omega_max`` scaled (sagging battery lowers the top speed)."""
+        """Copy with ``omega_max`` scaled (sagging battery lowers the top speed).
+
+        Raises ``ValueError`` if the scale is not positive or the scaled ``omega_max`` is no longer
+        above ``omega_min`` (the command range would be empty or inverted).
+        """
+        s = _arr(scale)
+        if np.any(s <= 0.0):
+            raise ValueError("battery_scale must be positive")
         out = self.copy()
-        out.omega_max = out.omega_max * _arr(scale)
+        out.omega_max = out.omega_max * s
+        if np.any(out.omega_max <= out.omega_min):
+            raise ValueError(
+                f"battery_scale={scale!r} puts omega_max ({out.omega_max}) at or below "
+                f"omega_min ({out.omega_min})"
+            )
         return out
 
     @property
@@ -139,6 +151,13 @@ class MotorModel:
     def thrust(self) -> F64:
         """Thrust of the current state [N]."""
         return np.asarray(self.params.k_f * self.omega**2)
+
+    def omega_to_command(self, omega: ArrayLike) -> F64:
+        """Inverse of ``command_to_omega`` (result clipped to ``[0, 1]``)."""
+        p = self.params
+        return np.asarray(
+            np.clip((_arr(omega) - p.omega_min) / (p.omega_max - p.omega_min), 0.0, 1.0)
+        )
 
     def thrust_to_command(self, thrust: ArrayLike) -> F64:
         """Inverse of ``command_to_omega`` o ``T = k_f omega^2``; result clipped to ``[0, 1]``."""

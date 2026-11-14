@@ -369,3 +369,17 @@ def test_changed_config_gets_new_directory(cfg: DroneConfig) -> None:
     data["target_auw_kg"] = 0.56
     other = DroneConfig.model_validate(data)
     assert model_dir(other) != model_dir(cfg)
+
+
+def test_principal_orders_axes_by_closest_body_axis() -> None:
+    """moments[i] belongs to body axis i even when the moments are not ascending (Iyy > Izz)."""
+    inertia = np.diag([2.0e-3, 5.0e-3, 3.0e-3])
+    inertia[0, 2] = inertia[2, 0] = 1.0e-4  # small product of inertia
+    w, v = principal(inertia)
+    assert np.linalg.det(v) == pytest.approx(1.0)
+    assert v @ np.diag(w) @ v.T == pytest.approx(inertia, abs=1e-15)
+    assert w[1] == pytest.approx(5.0e-3)  # y stays the middle axis, not sorted to the end
+    assert w[0] < w[2] < w[1]
+    np.testing.assert_allclose(np.abs(np.diag(v)), 1.0, atol=1e-2)
+    assert v[0, 0] > 0.0
+    assert v[1, 1] > 0.0

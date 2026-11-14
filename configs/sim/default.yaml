@@ -11,3 +11,4 @@ ground_plane: true
 prop_disk_collision: false
 rotor_drag: false
 ground_effect: false
+rotor_inertia: true

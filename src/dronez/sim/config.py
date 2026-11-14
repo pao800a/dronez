@@ -30,6 +30,9 @@ class SimConfig(BaseModel):
     prop_disk_collision: bool = False
     rotor_drag: bool = False
     ground_effect: bool = False
+    #: Rotor reaction (-sum s_i I_r domega_i/dt) and gyroscopic (-Omega x H) torques from the
+    #: spinning rotors (``propulsion.rotor_inertia_kg_m2``; 0 if the YAML omits it).
+    rotor_inertia: bool = True
 
     # -- optional effects (used only behind the flags above); order-of-magnitude placeholders ----
     #: Rotor (induced/profile) drag: F_b = -k_d * sum(omega) * v_xy_b  [N / (rad/s * m/s)].

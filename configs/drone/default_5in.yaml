@@ -62,18 +62,22 @@ prop:
   blade_thickness_m: 0.0015
 
 propulsion:
-  # ESTIMATES for a 2306 ~1750 KV motor with a 5.1" tri-blade prop on 4S. They are order-of-magnitude
-  # values from published class data (no thrust-stand measurement exists for this model).
-  k_f: 1.91e-6                # N/(rad/s)^2, so T_max = k_f * omega_max^2 ~ 9.0 N per motor
-  k_m: 3.06e-8                # N*m/(rad/s)^2, k_m/k_f = 0.016 m (typical 5" value)
+  # ESTIMATES for a 2306 ~2450 KV motor with a 5.1" tri-blade prop on 4S (14.8 V nominal). A 2306
+  # motor at ~2450 KV is the usual 4S freestyle choice (1750 KV is a 6S part). No thrust-stand
+  # measurement exists for this model; the values are order-of-magnitude from published class data.
+  k_f: 1.48e-6                # N/(rad/s)^2, so T_max = k_f * omega_max^2 ~ 12.0 N per motor
+  k_m: 2.37e-8                # N*m/(rad/s)^2, k_m/k_f = 0.016 m (typical 5" value)
   omega_min_rad_s: 150.0      # ~1430 rpm idle
-  omega_max_rad_s: 2170.0     # ~20700 rpm = 1750 KV * 14.8 V * 0.8 loaded
+  omega_max_rad_s: 2850.0     # ~27200 rpm = 2450 KV * 14.8 V * 0.75 loaded
   tau_m_s: 0.030              # first-order spin-up time constant
   rotor_inertia_kg_m2: 7.5e-6 # prop + bell + magnets + shaft Izz about the spin axis, from this CAD (7.48e-6)
   source: >-
-    ESTIMATE (not measured, no datasheet cited): k_f from ~9 N static thrust at ~20.7 krpm for a
-    5.1 inch tri-blade on a 2306 1750 KV motor with 4S; k_m/k_f = 0.016 m typical of 5 inch props;
-    tau_m 30 ms typical ESC+motor spin-up; rotor inertia computed from the CAD prop/bell/magnet/shaft solids (not weighed).
+    ESTIMATE (not measured, no datasheet cited): omega_max = KV 2450 rpm/V * 14.8 V * ~0.75 loaded
+    (the no-load speed is not reached under prop load and voltage sag) = ~27.2 krpm = 2850 rad/s;
+    k_f from ~12 N static thrust per motor (typical 11-13 N, ~1.2 kgf) at that speed for a 5.1 inch
+    tri-blade on a 2306 motor with 4S, k_f = 12 N / omega_max^2; k_m/k_f = 0.016 m typical of
+    5 inch props; tau_m 30 ms typical ESC+motor spin-up; rotor inertia computed from the CAD
+    prop/bell/magnet/shaft solids (not weighed).
     Replace with thrust-stand data before any sim-to-real claim.
 
 battery:

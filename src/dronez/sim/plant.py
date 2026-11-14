@@ -2,7 +2,8 @@
 
 Per physics step (``substep``): ``ActionDelay.push`` -> ``command_to_omega`` -> ``MotorModel.step``
 -> ``data.ctrl = T`` (N; the actuator gear adds the yaw reaction ``-s_i k_m/k_f T``) ->
-``xfrc_applied`` (external wrench at the CoM, plus optional rotor drag) -> ``mj_step``.
+``xfrc_applied`` (external wrench at the CoM, optional rotor drag, rotor reaction/gyroscopic
+torque) -> ``mj_step``.
 
 Randomized parameters are written by ``set_params`` **from the nominal snapshot**
 (``ModelIndex.nominal``), then ``mj_setConst`` (required for mass/inertia/ipos edits, verified)
@@ -107,6 +108,7 @@ class DroneSim:
         self._body = index.body_id
         self._sites = index.motor_site_ids
         self._rotor_r = index.rotor_radius_m
+        self._rotor_inertia = float(cfg.propulsion.rotor_inertia_kg_m2 or 0.0)
         self.reset(self.default_qpos(), np.zeros(6), self.hover_omega())
 
     # -- parameters ---------------------------------------------------------------------------
@@ -183,7 +185,9 @@ class DroneSim:
         self.data.qpos[:] = np.asarray(qpos, dtype=np.float64)
         self.data.qvel[:] = np.asarray(qvel, dtype=np.float64)
         self.motor.reset(omega0)
-        self.delay.reset()
+        # prefill the delay line with the command that holds omega0, so the first N steps do not
+        # let a fresh action through undelayed
+        self.delay.reset(self.motor.omega_to_command(self.motor.omega))
         self._force_w[:] = 0.0
         self._torque_w[:] = 0.0
         self.data.ctrl[:] = self.motor.thrust()
@@ -196,23 +200,63 @@ class DroneSim:
         self._torque_w[:] = np.asarray(torque_w, dtype=np.float64)
 
     def substep(self, u: ArrayLike) -> None:
-        """One physics step with normalized motor commands ``u`` (4,), in [0, 1]."""
+        """One physics step with normalized motor commands ``u`` (4,), in [0, 1].
+
+        Rotor torques (``SimConfig.rotor_inertia``). With ``s_i = +1`` for CCW (seen from above)
+        the rotors carry angular momentum ``H = sum_i s_i I_r omega_i`` along ``z_b``. Euler's
+        equation for the airframe (whose inertia already includes the rotors) gains
+        ``-dH/dt z_b - Omega x (H z_b)`` on the right-hand side, with ``Omega`` the body angular
+        velocity. Sign check: a CCW rotor that speeds up (``domega > 0``) is pushed up by the
+        motor with torque ``s I_r domega`` and pushes back on the airframe with ``-s I_r domega``,
+        i.e. a clockwise (negative yaw) reaction, the same sign as the drag reaction
+        ``-s k_m omega^2`` of a speed-up. The body-frame torque is rotated to the world frame and
+        *added* to ``set_wrench``.
+
+        The thrust gain of ground effect scales ``ctrl`` (and with it the actuator's yaw reaction
+        ``-s k_m/k_f ctrl``); the extra yaw torque is cancelled below so only thrust is scaled.
+        """
         d = self.data
         u_delayed = self.delay.push(u)
+        omega_prev = self.motor.omega
         thrust = self.motor.step(self.motor.command_to_omega(u_delayed), self.dt)
-        if self.sim.ground_effect:
-            thrust = thrust * ground_effect_gain(
+        use_drag, use_ge = self.sim.rotor_drag, self.sim.ground_effect
+        if use_drag or use_ge:
+            # mj_step leaves xquat/xpos/cvel at the *previous* state: refresh what we read.
+            mujoco.mj_kinematics(self.model, d)
+            if use_drag:
+                mujoco.mj_comPos(self.model, d)
+                mujoco.mj_comVel(self.model, d)
+        yaw_b = 0.0  # extra torque about z_b [N m]
+        if use_ge:
+            gain = ground_effect_gain(
                 d.site_xpos[self._sites, 2], self._rotor_r, self.sim.ground_effect_max_gain
             )
+            # gear yaw = -s ratio * (gain T); wanted -s ratio T
+            yaw_b += float(
+                np.sum(self.index.spin * self.motor.params.k_m_over_k_f * thrust * (gain - 1.0))
+            )
+            thrust = thrust * gain
         d.ctrl[:] = thrust
         force = self._force_w
-        if self.sim.rotor_drag:
+        if use_drag:
             quat = d.xquat[self._body]
             v_b = rotations.quat_rotate_inverse(quat, d.cvel[self._body, 3:])
             f_b = rotor_drag_force_b(self.motor.omega, v_b, self.sim.rotor_drag_coeff)
             force = force + rotations.quat_rotate(quat, f_b)
+        torque = self._torque_w
+        i_r = self._rotor_inertia
+        if self.sim.rotor_inertia and i_r > 0.0:
+            spin = self.index.spin
+            h = i_r * float(np.sum(spin * self.motor.omega))
+            domega = (self.motor.omega - omega_prev) / self.dt
+            yaw_b -= i_r * float(np.sum(spin * domega))
+            w_b = d.qvel[3:6]
+            tau_b = np.array([-h * w_b[1], h * w_b[0], yaw_b])
+            torque = torque + rotations.quat_rotate(d.qpos[3:7], tau_b)
+        elif yaw_b != 0.0:
+            torque = torque + rotations.quat_rotate(d.qpos[3:7], np.array([0.0, 0.0, yaw_b]))
         d.xfrc_applied[self._body, :3] = force
-        d.xfrc_applied[self._body, 3:] = self._torque_w
+        d.xfrc_applied[self._body, 3:] = torque
         mujoco.mj_step(self.model, d)
 
     # -- readout ------------------------------------------------------------------------------

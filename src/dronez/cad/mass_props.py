@@ -7,6 +7,8 @@ conversion to SI happens once, here: length x1e-3, volume x1e-9, inertia x rho x
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 from build123d import CenterOf
 from numpy.typing import NDArray
@@ -47,10 +49,23 @@ def parallel_axis(mass: float, d: F64) -> F64:
 
 
 def principal(inertia: F64) -> tuple[F64, F64]:
-    """Ascending principal moments and a right-handed matrix whose columns are the axes."""
+    """Principal moments and a right-handed matrix whose columns are the principal axes.
+
+    The axes are ordered by the body axis each is closest to (column ``i`` is the principal axis
+    most aligned with body axis ``i``, with a non-negative ``i``-th component for ``i = 0, 1``),
+    so ``moments[i]`` is the moment about (nearly) body axis ``i`` whatever the ordering of the
+    moments; the rotation is proper (``det = +1``).
+    """
     w, v = np.linalg.eigh(0.5 * (inertia + inertia.T))
-    if np.linalg.det(v) < 0.0:
-        v[:, 2] = -v[:, 2]
+    best = max(
+        itertools.permutations(range(3)), key=lambda p: sum(abs(v[i, p[i]]) for i in range(3))
+    )
+    order = list(best)
+    w, v = w[order], v[:, order]
+    for j in range(2):
+        if v[j, j] < 0.0:
+            v[:, j] = -v[:, j]
+    v[:, 2] = np.cross(v[:, 0], v[:, 1])
     return w, v
 
 
