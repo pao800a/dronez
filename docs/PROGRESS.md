@@ -3,7 +3,9 @@
 > Resume protocol: a new session continues from `CLAUDE.md` plus this file. Update it at the end of every phase, before every long-running job, and before compaction.
 
 ## Current phase
-**Phase 3: Baselines** (branch `phase-3-baselines`). Started 2026-11-14.
+**Phase 4: Envs and tooling** (branch `phase-4-envs`). Started 2026-11-14.
+
+Phase 3 complete: PR #4 merged as `308515f` (2026-11-14); CI run 43573866473 green (fast 175 + 1 skipped, cad 22, physics 39 on ubuntu and windows; physics 38 s ubuntu / 55 s windows).
 
 Phase 2 complete: PR #3 merged as `5c73bbf` (2026-11-14); CI run 43572037921 green (fast 127 + 1 skipped [builder test needs the cache, which CI builds after the fast step], cad 22, physics 30 on ubuntu and windows).
 
@@ -26,9 +28,10 @@ Phase 0 complete: PR #1 merged as `d6aea3e` (2026-11-13); CI run 43518516684 gre
 
 - Phase 3 Baselines (controls-engineer, 2026-11-14): `src/dronez/control/` (Controller protocol, Mixer derived from config + CoM-relative motor positions, RateController, CascadedPID, GeometricSO3, position outer loop), gains in `configs/control/{pid,geometric}.yaml`; `src/dronez/eval/` (metrics, scenarios, runner over DroneSim at 100 Hz, report, video via a child process with MUJOCO_GL=egl→osmesa); `Sensed.pos_w/vel_w` optional estimator abstraction (noise 2 mm / 1 cm/s); `dronez-eval --controller {pid,geometric} [--video]`. G3 (nominal plant, sensor noise on) from `$DRONEZ_DATA_DIR/eval/baseline-{pid,geometric}/c5762191dc-800e194166/metrics.json`: recovery from 30° worst time to <5° 0.15 s (pid) / 0.17 s (geometric), 20 seeds; hover 10 s max position error 0.44 cm / 0.45 cm, 5 seeds; step 20° and impulse success 1.0; 0 % saturation. Videos in `videos/` next to each metrics.json.
 
+- Preliminary throughput (2026-11-14, ad-hoc script, WSL 4 vCPU): `DroneSim` alone, decimation 10, single process: 1754 policy steps/s with rk4, 1939 with implicitfast (Python overhead dominates, ~57 µs per substep). The real benchmark is `scripts/benchmark_sps.py` in Phase 4.
+
 ## Next
-1. Merge the Phase 3 PR on green CI.
-2. Phase 4: `architect` (Opus) writes the RL spec ADR first (obs/action/reward/termination/rates/curriculum/DR/PPO); then `rl-engineer` builds `envs/` + `rl/`, `scripts/benchmark_sps.py` (CPU vs XPU ADR), and the `dronez-sim` MCP server. Eval runner must switch to the env (§7) and keep the baseline rows.
+1. Phase 4: `architect` (Opus) writes the RL spec ADR first (obs/action/reward/termination/rates/curriculum/DR/PPO); then `rl-engineer` builds `envs/` + `rl/`, `scripts/benchmark_sps.py` (CPU vs XPU ADR), and the `dronez-sim` MCP server. Eval runner must switch to the env (§7) and keep the baseline rows.
 
 ## Open problems / risks
 - Baseline hover `hf_energy_frac_gt20hz` ≈ 0.71 (sensor-noise-driven, tiny |Δu| ≈ 0.003): the G6 smoothness bar "≤ PID baseline" should compare under the same noise/DR settings and probably weight by amplitude; decide in the Phase 4 ADR.
@@ -50,6 +53,7 @@ _None yet._
 | 2026-11-13 | 0 | (main session) | The initial plan ran on Opus 5.5 (session default). |
 | 2026-11-13 | 0 | architect (via general-purpose, model=opus) | `docs/architecture.md` + ADR-0005 (planned call 1 of ~3). |
 | 2026-11-14 | 2 | physics-auditor | G2 review of `src/dronez/sim/`, `cad/mass_props.py`, `tests/physics/` (Phase 2 call 1 of ~3). |
+| 2026-11-14 | 4 | architect | RL spec ADR-0006: obs/action/reward/termination/rates/curriculum/DR/PPO (Phase 4 call 1 of ~3). |
 
 ## User action items
 - [ ] `echo 'export GITHUB_PAT="$(gh auth token)"' >> ~/.bashrc`, then restart Claude Code (loads the GitHub MCP).

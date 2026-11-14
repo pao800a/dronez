@@ -196,7 +196,7 @@ configs/sim/<name>.yaml ─► SimConfig ─┐
 
 ### 5.2 Step loop (`DronezBaseEnv.step`, motors mode)
 ```
-a = clip(action, -1, 1); u = command_map(a)            # tentative u = (a+1)/2 ∈ [0,1]; Phase 4 ADR
+a = clip(action, -1, 1); u = command_map(a)            # u = clip(u_h + u_h·a, 0, 1), linear in ω (ADR-0006 §3)
 for k in range(decimation):                            # physics rate
     sim.set_wrench(*disturbance.wrench(t, true))       # world frame, at the body CoM (xfrc_applied, verify)
     sim.substep(u)                                     # delay.push → command_to_omega → motor.step
@@ -231,21 +231,23 @@ After the edits, call `mj_setConst` if 4.x needs it for runtime mass changes (ve
 
 ## 6. Env and RL interfaces
 
+The binding obs/action/reward/termination/curriculum/DR/PPO spec is [ADR-0006](adr/0006-rl-spec.md). This section keeps the interface shape.
+
 - **Step contract (Gymnasium 1.x):**
-  - `reset(seed=None, options=None) -> (obs, info)` and `step(a) -> (obs, r, terminated, truncated, info)`;
-  - `obs` is a float32 `Box` laid out by `ObsLayout`, raw (VecNormalize normalizes it in training);
-  - `a` is float32 `Box(-1, 1, (4,))` in motor index order (CTBR: `[T_norm, p, q, r]`);
-  - `terminated` covers crash, rate limit, ground contact and out-of-bounds; `truncated` means the time limit (`episode_len_s`, enforced internally, no `TimeLimit` wrapper).
+  - `reset(seed=None, options=None) -> (obs, info)` and `step(a) -> (obs, r, terminated, truncated, info)`. `options` carries eval overrides as plain data (ADR-0006 §9: `qpos0, qvel0, a0, target_schedule, pos_target, phys_params, disturbance, noise`);
+  - `obs` is a float32 `Box` laid out by `ObsLayout` (Attitude D = 29, Hover D = 34; ADR-0006 §2). It is raw SI, built from `Sensed` only. VecNormalize normalizes it in training **with frozen fixed statistics** (`rl.normalization.FixedRunningMeanStd`, offsets/scales from `ObsLayout`), so `vecnormalize.pkl` still carries μ, σ², ε and clip for §9;
+  - `a` is float32 `Box(-1, 1, (4,))` in motor index order, mapped by `control.CommandMap` to `u = clip(u_h + Δu·a, 0, 1)`, linear in ω (ADR-0006 §3). CTBR: `[T_norm, p, q, r]`;
+  - `terminated` covers crash (a non-finite state), rate limit, ground contact and out-of-bounds (thresholds in ADR-0006 §5); `truncated` means the time limit (`episode_len_s`: Attitude 5 s, Hover 8 s, enforced internally, no `TimeLimit` wrapper).
 - **Registration:** in `dronez/envs/__init__.py`.
 - **`info` keys** (`info_level: minimal` in training sends only those marked ᵐ):
   - `sensed`: `{quat_wxyz, gyro_b [rad/s], accel_b [m/s²]}`, the only measurement input baselines may use;
   - `true`: `{pos_w, quat_wxyz, linvel_w, angvel_b, omega_rotor [rad/s], thrust_n}`;
   - `params`: `PhysParams` as a dict (`mass_kg, com_offset_b_m, inertia_diag_kg_m2, k_f, k_m, tau_m_s, omega_max_rad_s, latency_steps, battery_scale`);
   - `disturbance`: `{force_w_n, torque_w_nm, wind_w_m_s}`; `target`: `{quat_wxyz, pos_w}`;
-  - ᵐ`privileged_obs`: a float32 vector with a fixed layout (`ObsLayout.privileged`) for an optional asymmetric critic;
-  - ᵐ`reward_terms`: `{name: float}`; ᵐ`metrics`: `{att_err_rad, tilt_rad, saturation_frac}`;
+  - ᵐ`privileged_obs`: a float32 vector with a fixed layout (`ObsLayout.privileged`, D = 46) for an optional asymmetric critic. It is emitted only when `EnvConfig.privileged_obs: true` (ADR-0006 §2);
+  - ᵐ`reward_terms`: `{name: float}`, the weighted contributions, summing to `r`; ᵐ`metrics`: `{att_err_rad, tilt_rad, saturation_frac}`;
   - ᵐ`termination`: `null | crash | rate_limit | ground_contact | out_of_bounds | time_limit`;
-  - ᵐ`episode_seed`, ᵐ`curriculum_level`.
+  - ᵐ`episode_seed`, ᵐ`curriculum_level`, and ᵐ`episode_success` (on the last step of an episode).
 - **Seeds:**
   - At each reset, `episode_seed = seed if seed is not None else self.np_random.integers(2**63)`.
   - `SeedSequence(episode_seed).spawn(4)` → `rng_init, rng_dr, rng_noise, rng_dist`. Changing the noise config therefore never changes initial states, and any episode can be replayed from its `episode_seed`.
@@ -255,7 +257,7 @@ After the edits, call `mj_setConst` if 4.x needs it for runtime mass changes (ve
   - `config.yaml`: the resolved TrainConfig with the sim and drone configs inline, plus `config_hash`, `model_hash`, seed, git SHA and library versions;
   - `status.json`;
   - `train.log`: Python logging only, no per-step spam;
-  - `tb/`: TensorBoard events, including `reward/<term>`, `curriculum/level`, `action/saturation_frac` and `action/mean_abs_delta`;
+  - `tb/`: TensorBoard events. These include `reward/<term>`, `curriculum/level`, `curriculum/dr_scale`, `episode/success_rate`, `episode/termination/<reason>`, `action/saturation_frac`, `action/mean_abs_delta` and `obs/clip_frac` (ADR-0006 §4);
   - `checkpoints/step_<012d>/{model.zip, vecnormalize.pkl, ckpt.json}`: model and normalization stats are **always** written together, into the same directory, via a tmp-dir rename;
   - `checkpoints/best/`: same files.
 
@@ -322,22 +324,25 @@ Python `mcp` SDK, stdio transport, registered in `.mcp.json` (the FastMCP API is
 | `model_info(drone)` | hash, cache path, mass, CoM, principal inertia, hover command, T/W |
 | `sim_rollout(controller, scenario, seed, duration_s≤10)` | summary metrics only (no trajectories) |
 
-## 11. Rates (tentative)
+## 11. Rates
 
-Physics 1 kHz (`physics_dt_s = 0.001`), policy 100 Hz, decimation 10, all in `configs/sim/default.yaml`. Latency is a whole number of physics steps. The **Phase 4 RL-spec ADR** finalizes the observation layout, action map, reward, termination and rates (it may choose 500 Hz physics or policy rates up to 250 Hz). Nothing in this document depends on the specific values.
+Final per [ADR-0006 §1](adr/0006-rl-spec.md#1-rates-and-latency):
+- Physics 1 kHz (`physics_dt_s = 0.001`, rk4), policy 100 Hz, decimation 10, all in `configs/sim/default.yaml`.
+- Latency is configured in seconds and applied as a whole number of physics steps (`round(L / physics_dt)`), 0–20 ms under DR; `latency_budget_s = 0.020`.
+- Two switches are pre-authorized by ADR-0006, each gated by stated acceptance criteria: 500 Hz physics (dt 2 ms, decimation 5) and a 200 Hz policy. Nothing in this document depends on the specific values.
 
 ## 12. Extension points
 
 - **New airframe:** a YAML only. Add `configs/drone/<new>.yaml`, run `dronez-build-model`, and follow the drone-model-pipeline skill checklist. Non-quad layouts (hex, octo) need a new `layout` value with its motor-order validator and a mixer generalized to n motors. `MotorModel` and the gear derivation are already n-motor.
 - **New env:** subclass `DronezBaseEnv`, implement the four hooks, add its `ObsLayout` and reward terms, and register an id. Sim, DR, noise, seeding, the `info` keys and eval reuse come for free.
-- **CTBR action mode:** `EnvConfig.action_mode = "ctbr"`. The action `[T_norm, p, q, r]` (FLU, rad/s) drives `control.RateController` plus `Mixer` **inside the substep loop** (physics rate), then the motor model. The gyro used by the inner loop and its sampling rate are open decision 7. The ONNX output then becomes rate setpoints, and the contract adds the FLU→FRD conversion of `p, q, r`.
+- **CTBR action mode:** `EnvConfig.action_mode = "ctbr"`. The action `[T_norm, p, q, r]` (FLU, rad/s) drives `control.RateController` plus `Mixer` **inside the substep loop** (physics rate), then the motor model. The inner loop uses the noisy gyro at the physics rate (ADR-0006 §3). The ONNX output then becomes rate setpoints, and the contract adds the FLU→FRD conversion of `p, q, r`.
 
 ## 13. Open questions for implementers
 
 1. MuJoCo 4.0.1 (verify): MjSpec method and attribute names (bodies, sites, site actuators, `fullinertia`, explicit-inertial flag, mesh file paths, `to_xml`); default actuator gain and bias; `xfrc_applied` frame and point of application; whether runtime edits of `body_mass`, `body_inertia` or `body_ipos` need `mj_setConst`; accelerometer semantics; `mujoco.rollout` multi-model support.
 2. Integrator (Euler, RK4 or implicitfast) and the 500 Hz option: sim-engineer decides using the hover and energy-drift tests against the measured SPS.
 3. build123d 0.13 mass-property API and unit handling; scaling meshes to metres on export.
-4. `command_map` linear in ω or linear in thrust (Phase 4 ADR).
+4. ~~`command_map` linear in ω or linear in thrust~~ Resolved: linear in ω, symmetric around hover (ADR-0006 §3).
 5. `CAD_VERSION` bump discipline: a forgotten bump means a stale cache. Consider a test that fingerprints `src/dronez/cad/*.py`.
 6. ONNX opset and exporter path for torch 2.15.
-7. CTBR inner loop: noisy gyro at the physics rate, or true rates.
+7. ~~CTBR inner loop: noisy gyro at the physics rate, or true rates~~ Resolved: noisy gyro at 1 kHz (ADR-0006 §3).
