@@ -49,5 +49,13 @@ jobs:
       - run: uv sync --locked
       - name: Fast tests (unit + hooks)
         run: uv run pytest -m fast -q
-      # Phase 1+: build the model (cached by config hash), then the CAD/physics suites.
-      # Phase 5+: ~2-minute CPU smoke training.
+      # The model cache dir is keyed by config + CAD_VERSION, so restoring a stale entry is harmless.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ci-data/models
+          key: models-${{ runner.os }}-${{ hashFiles('configs/drone/**', 'src/dronez/cad/**') }}
+      - name: Build model
+        run: uv run dronez-build-model --drone default_5in
+      - name: CAD tests
+        run: uv run pytest -m cad -q
+      # Phase 2+: physics suite. Phase 5+: ~2-minute CPU smoke training.

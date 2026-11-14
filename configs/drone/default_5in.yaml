@@ -1,0 +1,129 @@
+# Default airframe: 5" freestyle quad, Quad-X, ~250 mm motor-to-motor diagonal.
+#
+# Frame C (CAD): FLU axes, xy origin at the centroid of the motor hubs, z = 0 at the top face of
+# the bottom plate (the arm plane starts there). All lengths in metres. See docs/architecture.md §3.
+#
+# Provenance: geometry and masses are a *generic* 5" freestyle build (not a specific product).
+# Densities marked "estimate" are effective densities chosen so that a simple block matches the
+# typical mass of the real component; they are not measurements. Replace them with weighed values
+# through `measured_overrides` once the real quad is on a scale.
+name: default_5in
+layout: quad_x
+
+# Hubs at (+-a, +-a), a = 0.250 m / (2*sqrt(2)) = 0.0884 m. Spin from above; PX4 Quad-X order.
+# z = arm top (0.006) + motor.prop_plane_height_m (0.019); checked by the schema validator.
+motors:
+  - {name: FR, position_m: [0.0884, -0.0884, 0.025], spin: ccw}  # M0
+  - {name: RL, position_m: [-0.0884, 0.0884, 0.025], spin: ccw}  # M1
+  - {name: FL, position_m: [0.0884, 0.0884, 0.025], spin: cw}    # M2
+  - {name: RR, position_m: [-0.0884, -0.0884, 0.025], spin: cw}  # M3
+
+geometry:
+  min_prop_clearance_m: 0.020   # required gap between adjacent prop discs
+  bottom_plate: {size_m: [0.125, 0.045], thickness_m: 0.003, corner_radius_m: 0.008}  # z in [-t, 0]
+  top_plate: {size_m: [0.090, 0.040], thickness_m: 0.002, corner_radius_m: 0.008}     # bottom face at standoff height
+  arms: {width_m: 0.020, thickness_m: 0.006, inner_radius_m: 0.030}                   # z in [0, t]
+  standoffs: {x_m: 0.040, y_m: 0.0125, outer_diameter_m: 0.005, inner_diameter_m: 0.003, height_m: 0.030}
+  imu_position_m: [0.0, 0.0, 0.0185]    # FC board centre
+  # Electronics blocks: name -> axis-aligned box. Effective densities in `materials`.
+  blocks:
+    esc:        {size_m: [0.040, 0.040, 0.005], center_m: [0.0, 0.0, 0.009]}       # 4-in-1 ESC
+    fc:         {size_m: [0.036, 0.036, 0.004], center_m: [0.0, 0.0, 0.0185]}      # flight controller
+    vtx:        {size_m: [0.030, 0.030, 0.006], center_m: [0.0, 0.0, 0.0265]}      # video transmitter
+    receiver:   {size_m: [0.012, 0.018, 0.004], center_m: [-0.045, 0.0, 0.002]}    # RC receiver
+    xt60_lead:  {size_m: [0.035, 0.012, 0.010], center_m: [-0.056, 0.0, 0.037]}    # XT60 pigtail + capacitor
+  camera:
+    size_m: [0.020, 0.019, 0.019]        # FPV camera (lens along +x)
+    center_m: [0.055, 0.0, 0.011]
+    mount: {base_thickness_m: 0.0015, cheek_thickness_m: 0.003, cheek_extra_height_m: 0.002}
+  strap:                                   # battery strap loops around top plate + battery
+    width_m: 0.020
+    thickness_m: 0.0015
+    x_positions_m: [0.0265, -0.0265]
+
+motor:
+  # 2306-class outrunner (stator 23 mm x 6 mm). Dimensions are typical for the class, not one datasheet.
+  name: "2306 class (generic)"
+  base: {diameter_m: 0.019, height_m: 0.003}
+  stator: {outer_diameter_m: 0.023, inner_diameter_m: 0.009, height_m: 0.006}
+  bell: {outer_diameter_m: 0.0285, wall_m: 0.0015, top_thickness_m: 0.002, height_m: 0.0125, gap_above_base_m: 0.0005}
+  magnets: {thickness_m: 0.001, height_m: 0.006}
+  shaft: {diameter_m: 0.005, protrusion_above_hub_m: 0.0005}
+
+prop:
+  # 5.1" x 4.3" tri-blade class (generic geometry; blades are flat tilted plates, not an airfoil).
+  diameter_m: 0.1295
+  pitch_m: 0.109
+  blade_count: 3
+  hub_diameter_m: 0.016
+  hub_height_m: 0.006
+  blade_root_radius_m: 0.006
+  blade_chord_m: 0.012
+  blade_thickness_m: 0.0015
+
+propulsion:
+  # ESTIMATES for a 2306 ~1750 KV motor with a 5.1" tri-blade prop on 4S. They are order-of-magnitude
+  # values from published class data (no thrust-stand measurement exists for this model).
+  k_f: 1.91e-6                # N/(rad/s)^2, so T_max = k_f * omega_max^2 ~ 9.0 N per motor
+  k_m: 3.06e-8                # N*m/(rad/s)^2, k_m/k_f = 0.016 m (typical 5" value)
+  omega_min_rad_s: 150.0      # ~1430 rpm idle
+  omega_max_rad_s: 2170.0     # ~20700 rpm = 1750 KV * 14.8 V * 0.8 loaded
+  tau_m_s: 0.030              # first-order spin-up time constant
+  rotor_inertia_kg_m2: 7.5e-6 # prop + bell + magnets + shaft Izz about the spin axis, from this CAD (7.48e-6)
+  source: >-
+    ESTIMATE (not measured, no datasheet cited): k_f from ~9 N static thrust at ~20.7 krpm for a
+    5.1 inch tri-blade on a 2306 1750 KV motor with 4S; k_m/k_f = 0.016 m typical of 5 inch props;
+    tau_m 30 ms typical ESC+motor spin-up; rotor inertia computed from the CAD prop/bell/magnet/shaft solids (not weighed).
+    Replace with thrust-stand data before any sim-to-real claim.
+
+battery:
+  cells: 4
+  cell_voltage_nominal_v: 3.7
+  capacity_mah: 1500
+  dimensions_m: [0.076, 0.037, 0.031]   # typical 4S 1500 mAh pack; mass = volume * effective density
+  position_m: [0.0, 0.0, 0.0475]        # on the top plate (top face at z = 0.032)
+  material: lipo
+
+materials:
+  carbon_fibre:    {density_kg_m3: 1600, source: "Typical cured CF laminate density (1.55-1.6 g/cm3)"}
+  aluminium:       {density_kg_m3: 2700, source: "6061/7075 aluminium, ~2.7 g/cm3"}
+  stator_cu_steel: {density_kg_m3: 7800, source: "Effective Cu winding + laminated steel stator (estimate, ~7.8 g/cm3)"}
+  steel:           {density_kg_m3: 7800, source: "Carbon steel, ~7.8 g/cm3"}
+  ndfeb:           {density_kg_m3: 7500, source: "NdFeB magnets, ~7.5 g/cm3"}
+  polycarbonate:   {density_kg_m3: 1200, source: "PC/PLA-class prop plastic, ~1.2 g/cm3 (estimate for a moulded 5 inch prop)"}
+  pcb_assembly:    {density_kg_m3: 1900, source: "Effective density of a populated PCB block (estimate)"}
+  wire_connector:  {density_kg_m3: 2500, source: "Effective density of XT60 + wire + capacitor lump (estimate)"}
+  camera_assembly: {density_kg_m3: 1200, source: "Effective density of an FPV micro camera in its case (estimate)"}
+  tpu:             {density_kg_m3: 1200, source: "TPU 95A, ~1.2 g/cm3"}
+  lipo:            {density_kg_m3: 2000, source: "Effective density of a 4S LiPo pack in its case (estimate, ~2.0 g/cm3)"}
+  neoprene:        {density_kg_m3: 1100, source: "Neoprene/rubber battery strap (estimate)"}
+
+parts_material:
+  bottom_plate: carbon_fibre
+  top_plate: carbon_fibre
+  arms: carbon_fibre
+  standoffs: aluminium
+  motor_base: aluminium
+  motor_stator: stator_cu_steel
+  motor_bell: aluminium
+  motor_magnets: ndfeb
+  motor_shaft: steel
+  props: polycarbonate
+  esc: pcb_assembly
+  fc: pcb_assembly
+  vtx: pcb_assembly
+  receiver: pcb_assembly
+  xt60_lead: wire_connector
+  camera: camera_assembly
+  camera_mount: tpu
+  battery: lipo
+  battery_strap: neoprene
+
+# Real weighed values go here (mass_kg, com_c_m, inertia_com_kg_m2, source). Empty = pure CAD.
+target_auw_kg: 0.55
+measured_overrides: {}
+
+cad:
+  mesh_tolerance_m: 0.0002
+  mesh_angular_tolerance_rad: 0.3
+  max_triangles_per_part: 6000
