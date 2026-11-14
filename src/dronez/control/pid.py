@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dronez.control.base import NominalVehicle
 from dronez.control.baseline import BaselineController
+from dronez.control.command_map import CommandMap
 from dronez.control.position import PositionGains
 from dronez.utils import rotations
 from dronez.utils.config import load_model
@@ -104,10 +105,14 @@ class CascadedPID(BaselineController):
     """Attitude P -> rate PID -> mixer (plus the optional position loop of the base class)."""
 
     def __init__(
-        self, vehicle: NominalVehicle, config: PidConfig | None = None, dt: float = 0.01
+        self,
+        vehicle: NominalVehicle,
+        config: PidConfig | None = None,
+        dt: float = 0.01,
+        cmap: CommandMap | None = None,
     ) -> None:
         cfg = config if config is not None else load_pid_config()
-        super().__init__(vehicle, cfg.position, dt)
+        super().__init__(vehicle, cfg.position, dt, cmap)
         self.cfg = cfg
         self.rate = RateController(vehicle.inertia_kg_m2, cfg.rate, dt)
         self._kp_att = np.array(cfg.attitude.kp)

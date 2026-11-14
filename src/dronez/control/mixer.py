@@ -29,6 +29,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from dronez.control.base import NominalVehicle
+from dronez.control.command_map import CommandMap
 
 F64 = NDArray[np.float64]
 
@@ -81,8 +82,10 @@ class Mixer:
             raise ValueError("need t_min < t_max for every motor")
 
     @classmethod
-    def from_vehicle(cls, v: NominalVehicle) -> Mixer:
-        lo, hi = v.thrust_limits_n
+    def from_vehicle(cls, v: NominalVehicle, cmap: CommandMap | None = None) -> Mixer:
+        """Mixer with the limits of the action envelope ``cmap.thrust_limits`` (ADR-0006 §3)."""
+        cmap = cmap if cmap is not None else CommandMap.from_vehicle(v)
+        lo, hi = cmap.thrust_limits(v.motor)
         return cls(v.hubs_b, v.spin, v.motor.k_m_over_k_f, lo, hi)
 
     # -- linear maps -----------------------------------------------------------------------------

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -49,3 +52,25 @@ def sim_art(sim_cfg_drone: DroneConfig, tmp_path_factory: pytest.TempPathFactory
     return ModelArtifacts(
         root=tmp_path_factory.mktemp("synthetic_model"), mass_props=mp, meshes={}, manifest={}
     )
+
+
+@pytest.fixture
+def synthetic_env(
+    sim_cfg_drone: DroneConfig, sim_art: ModelArtifacts
+) -> Iterator[Callable[..., Any]]:
+    """``synthetic_env(**env_cfg)``: ``DronezAttitude-v0`` on the synthetic model (no CAD cache),
+    ``info_level='full'`` as the eval runner requires. Closes what it made."""
+    from dronez.envs import AttitudeEnv, EnvConfig
+    from dronez.sim import SimConfig
+
+    made: list[Any] = []
+
+    def _mk(**cfg: Any) -> Any:
+        cfg.setdefault("info_level", "full")
+        env = AttitudeEnv(EnvConfig(**cfg), SimConfig(), sim_cfg_drone, artifacts=sim_art)
+        made.append(env)
+        return env
+
+    yield _mk
+    for env in made:
+        env.close()

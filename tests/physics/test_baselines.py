@@ -1,19 +1,22 @@
 """Gate G3: both baseline controllers stabilize from 30 deg and hold hover within 5 cm.
 
-Closed loop on the real CAD-built model at the policy rate (100 Hz, decimation 10), nominal plant,
+Closed loop through ``DronezAttitude-v0`` (real CAD-built model, 100 Hz policy rate), nominal plant,
 sensor noise on, episodes seeded as in the eval suite (``configs/eval/baseline.yaml``).
 """
 
 from __future__ import annotations
 
+import gymnasium as gym
 import numpy as np
 import pytest
 
-from dronez.control import CascadedPID, GeometricSO3, NominalVehicle
+import dronez.envs  # noqa: F401 - registers the env ids
+from dronez.envs import EnvConfig
 from dronez.eval import metrics as M
-from dronez.eval.runner import SimEnv, run_episode
+from dronez.eval.controllers import ControllerSpec
+from dronez.eval.runner import run_episode
 from dronez.eval.scenarios import episode_seed, load_suite, make_plan
-from dronez.sim import DroneSim, ImuNoiseConfig
+from dronez.sim import ImuNoiseConfig
 
 pytestmark = pytest.mark.physics
 
@@ -23,10 +26,11 @@ SCENARIOS = {sc.name: (i, sc) for i, sc in enumerate(SUITE.scenarios)}
 
 @pytest.fixture(scope="module", params=["pid", "geometric"])
 def harness(request: pytest.FixtureRequest, rig):  # type: ignore[no-untyped-def]
-    sim = DroneSim(rig.cfg, rig.sim_cfg)
-    veh = NominalVehicle.from_drone(rig.cfg, rig.art)
-    ctrl = CascadedPID(veh) if request.param == "pid" else GeometricSO3(veh)
-    return ctrl, SimEnv(sim, ImuNoiseConfig())
+    """Same path as ``dronez-eval``: the controller from its spec, episodes through the env."""
+    del rig  # ensures the CAD cache exists
+    env = gym.make("DronezAttitude-v0", env_cfg=EnvConfig(info_level="full"))
+    yield ControllerSpec(request.param)(), env
+    env.close()
 
 
 def _episodes(name: str, harness):  # type: ignore[no-untyped-def]
