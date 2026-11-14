@@ -1,0 +1,33 @@
+# Cascaded PID gains for configs/drone/default_5in.yaml (CAD inertia diag ~ [1.71, 1.89, 3.21] e-3 kg m^2,
+# motor lag tau_m = 30 ms, policy/control rate 100 Hz with a 10 ms zero-order hold).
+#
+# Rationale
+# - Rate gains are in angular-acceleration units (the controller multiplies by the CAD inertia tensor),
+#   so they are bandwidths, not torques. The rate loop is  1/(J s) * 1/(tau_m s + 1): a P gain K gives
+#   s^2 tau_m + s + K = 0, damping 1/(2 sqrt(K tau_m)). K = 30 /s -> zeta ~ 0.5, wn ~ 31 rad/s
+#   (about 5 Hz), leaving the sample hold (5 ms mean delay) well inside the phase margin.
+# - Attitude P loop kp = 8 /s: more than 3x below the rate-loop bandwidth (cascade rule of thumb), so the
+#   geodesic error decays with a ~0.12 s time constant (30 deg -> 5 deg in ~0.25 s plus the lag).
+# - Yaw has ~1/2 the gains: reaction-torque authority is k_m/k_f = 0.016 m (about 1/5 of roll/pitch).
+# - ki/kd: small integral for gyro bias and model error; D on the filtered measurement is off by default
+#   (the 30 ms motor lag makes angular-acceleration feedback of little use at 100 Hz and noisy).
+# - Position loop (outer, optional): wn ~ 2.2 rad/s (kp 5, kd 3.5), 5x below the attitude loop.
+attitude:
+  kp: [8.0, 8.0, 4.0]
+  max_rate_rad_s: [8.0, 8.0, 4.0]
+rate:
+  kp: [30.0, 30.0, 15.0]
+  ki: [10.0, 10.0, 5.0]
+  kd: [0.0, 0.0, 0.0]
+  i_limit: [20.0, 20.0, 10.0]
+  d_cutoff_hz: 25.0
+position:
+  kp_xy: 5.0
+  kd_xy: 3.5
+  ki_xy: 0.0
+  kp_z: 12.0
+  kd_z: 6.0
+  ki_z: 2.0
+  max_tilt_deg: 30.0
+  max_accel_z: 8.0
+  i_limit: 2.0

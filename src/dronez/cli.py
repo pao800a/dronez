@@ -106,8 +106,88 @@ def train() -> None:
     sys.exit(_not_yet("dronez-train"))
 
 
-def evaluate() -> None:
-    sys.exit(_not_yet("dronez-eval"))
+def evaluate(argv: list[str] | None = None) -> None:
+    """``dronez-eval``: baseline scenario suite (``--controller``) or a trained run (``--run``)."""
+    parser = argparse.ArgumentParser(prog="dronez-eval", description=evaluate.__doc__)
+    parser.add_argument("--controller", choices=["pid", "geometric"], help="baseline controller")
+    parser.add_argument("--run", help="trained run id (not implemented before Phase 5)")
+    parser.add_argument("--suite", default="baseline", help="name in configs/eval/ or a path")
+    parser.add_argument("--drone", default="default_5in")
+    parser.add_argument("--sim", default="default")
+    parser.add_argument("--video", action="store_true", help="render MP4s (needs EGL or OSMesa)")
+    args = parser.parse_args(argv)
+    if args.run is not None or args.controller is None:
+        sys.exit(_not_yet("dronez-eval --run (trained policies)"))
+    sys.exit(_eval_baseline(args))
+
+
+def _eval_baseline(args: argparse.Namespace) -> int:
+    from dronez.cad.artifacts import MissingModelError, load_artifacts  # noqa: PLC0415
+    from dronez.cad.schema import load_drone_config  # noqa: PLC0415
+    from dronez.control import CascadedPID, GeometricSO3, NominalVehicle  # noqa: PLC0415
+    from dronez.eval.report import run_dir_for, write_report  # noqa: PLC0415
+    from dronez.eval.runner import SimEnv  # noqa: PLC0415
+    from dronez.eval.scenarios import load_suite  # noqa: PLC0415
+    from dronez.eval.suite import run_baseline_suite  # noqa: PLC0415
+    from dronez.eval.video import render_video  # noqa: PLC0415
+    from dronez.sim import DroneSim, ImuNoiseConfig, load_sim_config  # noqa: PLC0415
+
+    cfg = load_drone_config(args.drone)
+    try:
+        art = load_artifacts(cfg)
+    except MissingModelError as exc:
+        print(f"{exc}\nrun: uv run dronez-build-model --drone {args.drone}", file=sys.stderr)
+        return 1
+    sim_cfg = load_sim_config(args.sim)
+    suite = load_suite(args.suite)
+    vehicle = NominalVehicle.from_drone(cfg, art)
+    ctrl: CascadedPID | GeometricSO3
+    if args.controller == "pid":
+        ctrl = CascadedPID(vehicle, dt=sim_cfg.policy_dt_s)
+    else:
+        ctrl = GeometricSO3(vehicle, dt=sim_cfg.policy_dt_s)
+    noise = ImuNoiseConfig()
+    env = SimEnv(DroneSim(cfg, sim_cfg), noise)
+    results = run_baseline_suite(ctrl, env, suite)
+
+    model_hash = art.mass_props.model_hash
+    out = run_dir_for(args.controller, suite.hash(), model_hash)
+    videos: list[str] = []
+    if args.video:
+        for name in ("recovery_30deg", "impulse_small"):
+            res = results.get(name)
+            if res is None:
+                continue
+            path = render_video(
+                res.trajectories[0].qpos,
+                out / "videos" / f"{name}.mp4",
+                drone=args.drone,
+                sim=args.sim,
+                fps=25,
+            )
+            if path is not None:
+                videos.append(f"videos/{path.name}")
+    extra = {
+        "drone": cfg.name,
+        "seed": suite.seed,
+        "noise": noise.model_dump(),
+        "controller_config": ctrl.cfg.model_dump(mode="json"),
+        "policy_rate_hz": sim_cfg.policy_rate_hz,
+        "physics_rate_hz": 1.0 / sim_cfg.physics_dt_s,
+    }
+    m = write_report(out, args.controller, suite, model_hash, results, extra, videos)
+    gate = m["gates"]["G3"]
+    print(f"controller : {args.controller}")
+    print(f"output dir : {out}")
+    print(f"metrics    : {out / 'metrics.json'}")
+    print(f"report     : {out / 'report.md'}")
+    print(f"videos     : {videos or 'none'}")
+    for c in gate["criteria"]:
+        print(
+            f"  [{'ok' if c['pass'] else 'FAIL'}] {c['name']} = {c['value']} (<= {c['threshold']})"
+        )
+    print(f"gate G3    : {'PASS' if gate['pass'] else 'FAIL'}")
+    return 0 if gate["pass"] else 2
 
 
 def export() -> None:

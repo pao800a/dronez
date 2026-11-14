@@ -1,0 +1,36 @@
+# Baseline evaluation suite (Phase 3, gate G3). Closed loop at the policy rate (100 Hz), sensor noise on,
+# nominal plant. Initial conditions come from SeedSequence([seed, scenario_idx, episode_idx]).
+name: baseline
+seed: 0
+scenarios:
+  - name: hover_hold
+    kind: hover_hold
+    n_episodes: 5
+    duration_s: 10.0
+    start_height_m: 1.0
+    hold_s: 2.0
+  - name: recovery_30deg
+    kind: recovery
+    n_episodes: 20
+    duration_s: 3.0
+    start_height_m: 1.5
+    tilt_deg: 30.0
+    hold_s: 1.0
+  - name: step_attitude_20deg
+    kind: step_attitude
+    n_episodes: 10
+    duration_s: 3.0
+    start_height_m: 1.5
+    tilt_deg: 20.0
+    step_time_s: 0.5
+    hold_s: 1.0
+  - name: impulse_small
+    kind: impulse
+    n_episodes: 10
+    duration_s: 4.0
+    start_height_m: 1.0
+    impulse_time_s: 0.5
+    impulse_duration_s: 0.02
+    impulse_force_n: 2.0
+    impulse_torque_nm: 0.12
+    hold_s: 1.0

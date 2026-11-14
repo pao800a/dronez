@@ -35,8 +35,15 @@ class TrueState:
 
 @dataclass
 class Sensed:
-    """What a flight controller would have: attitude estimate, gyro and accelerometer (body FLU)."""
+    """What a flight controller would have: attitude estimate, gyro and accelerometer (body FLU).
+
+    ``pos_w`` / ``vel_w`` (world frame, CoM position [m] and velocity [m/s]) are an optional
+    *estimator* output (mocap / EKF / VIO abstraction, see ``dronez.sim.sensors``). They default
+    to ``None`` so attitude-only consumers (policies) are unaffected.
+    """
 
     quat_wxyz: F64
     gyro_b: F64
     accel_b: F64
+    pos_w: F64 | None = None
+    vel_w: F64 | None = None
