@@ -8,6 +8,13 @@ MuJoCo's ``sensor_noise`` is not used. ``ImuNoiseModel`` adds, per measurement c
 and for the attitude a small random rotation vector (``quat_noise_rad``) applied on the true
 quaternion. All randomness comes from the ``np.random.Generator`` passed in; the model holds no RNG.
 Defaults are order-of-magnitude MEMS values (placeholders, not measured), tunable per config.
+
+**Position / velocity is an estimator abstraction, not a raw sensor.** ``Sensed.pos_w`` and
+``Sensed.vel_w`` model the output of a mocap system or a state estimator (EKF with GPS / optical
+flow / VIO): the CoM position and velocity in the world frame, corrupted by white noise
+(``pos_noise_std``, ``vel_noise_std``). No bias, dropout or latency is modelled yet (placeholders,
+not measured). Hover controllers consume them; attitude-only policies ignore them. Their noise is
+drawn *after* the IMU channels so the IMU samples of a given seed are unchanged.
 """
 
 from __future__ import annotations
@@ -34,6 +41,8 @@ class ImuNoiseConfig(BaseModel):
     accel_bias_init_std: float = Field(default=5e-2, ge=0.0)  # m/s^2
     accel_bias_rw: float = Field(default=1e-3, ge=0.0)  # m/s^2/sqrt(s)
     quat_noise_rad: float = Field(default=2e-3, ge=0.0)  # rad, per-sample rotation-vector std
+    pos_noise_std: float = Field(default=2e-3, ge=0.0)  # m, estimator position (mocap-class)
+    vel_noise_std: float = Field(default=1e-2, ge=0.0)  # m/s, estimator velocity
 
     @classmethod
     def ideal(cls) -> ImuNoiseConfig:
@@ -45,6 +54,8 @@ class ImuNoiseConfig(BaseModel):
             accel_bias_init_std=0.0,
             accel_bias_rw=0.0,
             quat_noise_rad=0.0,
+            pos_noise_std=0.0,
+            vel_noise_std=0.0,
         )
 
 
@@ -87,4 +98,8 @@ class ImuNoiseModel:
         axis = rotvec / np.maximum(angle, 1e-12)[..., None]
         dq = rotations.quat_from_axis_angle(axis, angle)
         quat_m = rotations.quat_normalize(rotations.quat_mul(quat, dq))
-        return Sensed(quat_wxyz=quat_m, gyro_b=gyro_m, accel_b=acc_m)
+        pos = np.asarray(true.pos_w, dtype=np.float64)
+        vel = np.asarray(true.linvel_w, dtype=np.float64)
+        pos_m = pos + c.pos_noise_std * rng.standard_normal(pos.shape)
+        vel_m = vel + c.vel_noise_std * rng.standard_normal(vel.shape)
+        return Sensed(quat_wxyz=quat_m, gyro_b=gyro_m, accel_b=acc_m, pos_w=pos_m, vel_w=vel_m)

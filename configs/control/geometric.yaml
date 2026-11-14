@@ -1,0 +1,24 @@
+# Geometric SO(3) controller gains for configs/drone/default_5in.yaml.
+#
+# Rationale
+# - k_R = J diag(wn^2), k_Omega = J diag(2 zeta wn): critically-damped-ish second-order attitude
+#   dynamics per axis from the CAD inertia (so the same numbers survive an airframe change).
+# - The plant is  J dOmega/dt = tau  behind a 30 ms motor lag. A PD law tau = -J(wn^2 e + 2 zeta wn w)
+#   has the characteristic polynomial  tau_m s^3 + s^2 + 2 zeta wn s + wn^2  which is Hurwitz iff
+#   2 zeta wn > tau_m wn^2, i.e. wn < 2 zeta / tau_m = 60 rad/s. wn = 14 rad/s keeps a >4x margin and
+#   survives the 10 ms control hold.
+# - Yaw: wn halved (reaction-torque authority k_m/k_f = 0.016 m is ~5x below roll/pitch).
+# - Position loop identical to the PID baseline so the two differ only in the attitude law.
+attitude:
+  wn_rad_s: [14.0, 14.0, 7.0]
+  zeta: [0.9, 0.9, 0.9]
+position:
+  kp_xy: 5.0
+  kd_xy: 3.5
+  ki_xy: 0.0
+  kp_z: 12.0
+  kd_z: 6.0
+  ki_z: 2.0
+  max_tilt_deg: 30.0
+  max_accel_z: 8.0
+  i_limit: 2.0
