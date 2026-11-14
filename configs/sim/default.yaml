@@ -1,0 +1,14 @@
+# Default simulation config. Physics 1 kHz, policy 100 Hz (decimation 10); see docs/architecture.md §11.
+#
+# Integrator: rk4. Evidence (tests/unit/test_sim_plant.py::test_default_integrator_beats_euler_on_a_tumble): a free, torque-free tumble at
+# 10 rad/s drifts 1.3 % in energy/angular momentum over 10 s with euler and implicitfast but 1.7e-8
+# with rk4 (2.6e-7 at 25 rad/s vs 8 % for euler). Hover holds to machine precision with any of them.
+# The price is ~6 us more per physics step (~14 -> ~20 us including the Python motor/delay code).
+physics_dt_s: 0.001
+decimation: 10
+integrator: rk4
+ground_plane: true
+prop_disk_collision: false
+rotor_drag: false
+ground_effect: false
+rotor_inertia: true
